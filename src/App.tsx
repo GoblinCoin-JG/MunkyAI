@@ -511,7 +511,7 @@ export default function App() {
       {/* Left Resizer */}
       <div 
         onMouseDown={startResizingLeft}
-        className={`w-1 hover:w-1.5 bg-transparent hover:bg-blue-500/50 cursor-col-resize transition-all z-10 shrink-0 ${isResizingLeft ? 'bg-blue-500 w-1.5' : ''}`}
+        className={`w-1 bg-transparent hover:bg-blue-500/50 cursor-col-resize transition-colors z-10 shrink-0 ${isResizingLeft ? 'bg-blue-500' : ''}`}
       />
 
       {/* --- New Project Modal --- */}
@@ -793,7 +793,7 @@ export default function App() {
       {/* Right Resizer */}
       <div 
         onMouseDown={startResizingRight}
-        className={`w-1 hover:w-1.5 bg-transparent hover:bg-blue-500/50 cursor-col-resize transition-all z-10 shrink-0 ${isResizingRight ? 'bg-blue-500 w-1.5' : ''}`}
+        className={`w-1 bg-transparent hover:bg-blue-500/50 cursor-col-resize transition-colors z-10 shrink-0 ${isResizingRight ? 'bg-blue-500' : ''}`}
       />
 
       {/* --- Right Sidebar: AI Assistant Panel --- */}
