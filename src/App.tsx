@@ -443,7 +443,7 @@ export default function App() {
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
           <h1 className="font-bold text-sm tracking-tight flex items-center gap-2">
             <Layers size={18} className="text-blue-500" />
-            IDEA IDE LITE
+            munky.ai
           </h1>
           <button 
             onClick={() => setShowNewProjectModal(true)}
