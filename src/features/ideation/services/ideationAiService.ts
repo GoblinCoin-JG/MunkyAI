@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { ScaffoldingBlock, Suggestion, ThinkingBlock } from '../types';
+import { ClarifyQuestionDraft, ScaffoldingBlock, Suggestion, ThinkingBlock } from '../types';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
@@ -76,24 +76,146 @@ export const ideationAiService = {
     return JSON.parse(response.text);
   },
 
-  async clarifyBlock(block: ThinkingBlock): Promise<string[]> {
+  async clarifyBlock(block: ThinkingBlock): Promise<ClarifyQuestionDraft[]> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
 
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Generate 3-5 follow-up questions to clarify this idea:
+      contents: `Generate 4-6 structured clarification question cards for this idea:
       Title: ${block.title}
       Summary: ${block.summary}
       Notes: ${block.content}
 
-      Return as a JSON array of strings.`,
+      Requirements:
+      - Each item must include: title, prompt, type, options.
+      - type must be one of: textarea, single, multi.
+      - Use textarea for open-ended context collection.
+      - Use single/multi when concrete options reduce friction.
+      - For textarea, options should be an empty array.
+      - For single/multi, provide 3-6 concise options.
+
+      Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
+          type: Type.OBJECT,
+          properties: {
+            questions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  prompt: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  options: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                },
+                required: ['title', 'prompt', 'type', 'options'],
+              },
+            },
+          },
+          required: ['questions'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text) as { questions?: ClarifyQuestionDraft[] };
+    return Array.isArray(parsed.questions) ? parsed.questions : [];
+  },
+
+  async generateClarifyQuestion(
+    block: ThinkingBlock,
+    existingQuestions: { title: string; prompt: string }[],
+  ): Promise<ClarifyQuestionDraft> {
+    if (!genAI) {
+      throw new Error('AI not configured');
+    }
+
+    const existingText = existingQuestions
+      .map((question, index) => `${index + 1}. ${question.title} - ${question.prompt}`)
+      .join('\n');
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Create one additional clarification question card for this idea.
+      Title: ${block.title}
+      Summary: ${block.summary}
+      Notes: ${block.content}
+
+      Existing question cards:
+      ${existingText || 'None'}
+
+      Requirements:
+      - Return one non-duplicate card.
+      - Include: title, prompt, type, options.
+      - type must be one of: textarea, single, multi.
+      - If type is textarea, options must be an empty array.
+      - If type is single or multi, provide 3-6 options.
+
+      Return as JSON.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            prompt: { type: Type.STRING },
+            type: { type: Type.STRING },
+            options: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+          },
+          required: ['title', 'prompt', 'type', 'options'],
+        },
+      },
+    });
+
+    return JSON.parse(response.text);
+  },
+
+  async synthesizeClarifyAnswers(
+    block: ThinkingBlock,
+    answers: Array<{ title: string; prompt: string; answer: string; note: string }>,
+  ): Promise<{ summary: string; content: string }> {
+    if (!genAI) {
+      throw new Error('AI not configured');
+    }
+
+    const answerText = answers
+      .map((item, index) => {
+        const noteLine = item.note ? `\nNote/Context: ${item.note}` : '';
+        return `${index + 1}. ${item.title}\nPrompt: ${item.prompt}\nAnswer: ${item.answer}${noteLine}`;
+      })
+      .join('\n\n');
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Update this idea block using the answered clarification board.
+      Current block title: ${block.title}
+      Current summary: ${block.summary}
+      Current notes: ${block.content}
+
+      Clarification answers:
+      ${answerText}
+
+      Return an improved summary and content that integrate the new details.
+      Keep it concrete, and preserve the original intent.
+      Return as JSON.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: { type: Type.STRING },
+            content: { type: Type.STRING },
+          },
+          required: ['summary', 'content'],
         },
       },
     });

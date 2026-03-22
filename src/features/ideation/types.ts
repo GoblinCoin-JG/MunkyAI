@@ -29,7 +29,31 @@ export interface ScaffoldingBlock {
   tags: string[];
 }
 
+export type QuestionCardType = 'textarea' | 'single' | 'multi';
+
+export interface ClarifyQuestionCard {
+  id: string;
+  title: string;
+  prompt: string;
+  type: QuestionCardType;
+  options: string[];
+  answer: string | string[];
+  note: string;
+  source: 'ai' | 'custom';
+}
+
+export interface ClarifyQuestionDraft {
+  title: string;
+  prompt: string;
+  type: QuestionCardType;
+  options?: string[];
+}
+
+export interface ClarifyBoard {
+  blockId: string;
+  cards: ClarifyQuestionCard[];
+}
+
 export type AiOutput =
   | { type: 'expand'; content: { summary: string; content: string } }
-  | { type: 'clarify'; content: string[] }
   | { type: 'suggest'; content: Suggestion[] };

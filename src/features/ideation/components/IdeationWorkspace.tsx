@@ -18,8 +18,13 @@ export function IdeationWorkspace() {
     searchQuery,
     setSearchQuery,
     isAiLoading,
+    isSubmittingClarifyBoard,
     aiOutput,
     setAiOutput,
+    clarifyBoard,
+    clarifyBoardError,
+    clarifyBoardUnansweredIds,
+    clarifyBoardCompletion,
     artifactDraft,
     setArtifactDraft,
     expandedNodes,
@@ -48,6 +53,13 @@ export function IdeationWorkspace() {
     toggleNode,
     handleAiAction,
     applyAiExpansion,
+    setQuestionCardAnswer,
+    setQuestionCardNote,
+    addQuestionOption,
+    deleteQuestionCard,
+    addCustomQuestionCard,
+    addAiQuestionCard,
+    submitQuestionBoard,
     addSuggestedBlock,
     exportArtifact,
   } = useIdeationWorkspace();
@@ -127,10 +139,22 @@ export function IdeationWorkspace() {
         rightWidth={rightWidth}
         selectedId={selectedId}
         isAiLoading={isAiLoading}
+        isSubmittingClarifyBoard={isSubmittingClarifyBoard}
         aiOutput={aiOutput}
+        clarifyBoard={clarifyBoard}
+        clarifyBoardError={clarifyBoardError}
+        clarifyBoardUnansweredIds={clarifyBoardUnansweredIds}
+        clarifyBoardCompletion={clarifyBoardCompletion}
         onSetAiOutput={setAiOutput}
         onAiAction={handleAiAction}
         onApplyExpansion={applyAiExpansion}
+        onSetQuestionCardAnswer={setQuestionCardAnswer}
+        onSetQuestionCardNote={setQuestionCardNote}
+        onAddQuestionOption={addQuestionOption}
+        onDeleteQuestionCard={deleteQuestionCard}
+        onAddCustomQuestionCard={addCustomQuestionCard}
+        onAddAiQuestionCard={addAiQuestionCard}
+        onSubmitQuestionBoard={submitQuestionBoard}
         onAddSuggestedBlock={addSuggestedBlock}
       />
     </div>
