@@ -1,9 +1,9 @@
 import { AnimatePresence } from 'motion/react';
 import { useState } from 'react';
-import { useIdeationWorkspace } from '../hooks/useIdeationWorkspace';
+import { useIdeationWorkspace } from '../hooks/useIdeationWorkspace.ts';
 import { CenterPanel } from './CenterPanel';
 import { LeftSidebar } from './LeftSidebar';
-import { RightSidebar } from './RightSidebar';
+import { RightSidebar } from './RightSidebar.tsx';
 import { DeleteBlockConfirmModal } from './modals/DeleteBlockConfirmModal';
 import { DeleteProjectConfirmModal } from './modals/DeleteProjectConfirmModal';
 import { DeleteQuestionBoardConfirmModal } from './modals/DeleteQuestionBoardConfirmModal';
