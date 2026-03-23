@@ -1,5 +1,11 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { ClarifyQuestionDraft, ScaffoldingBlock, Suggestion, ThinkingBlock } from '../types';
+import {
+  ClarifyQuestionDraft,
+  ExpandAspectDraft,
+  ScaffoldingBlock,
+  Suggestion,
+  ThinkingBlock,
+} from '../types';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
@@ -47,19 +53,126 @@ export const ideationAiService = {
     return JSON.parse(response.text);
   },
 
-  async expandBlock(block: ThinkingBlock): Promise<{ summary: string; content: string }> {
+  async expandBlock(block: ThinkingBlock): Promise<ExpandAspectDraft[]> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
 
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Expand on this idea block.
+      contents: `Generate 4-6 expansion aspect cards for this idea block.
       Title: ${block.title}
       Current Summary: ${block.summary}
       Current Notes: ${block.content}
 
-      Provide a more detailed summary and expanded notes. Return as JSON.`,
+      Requirements:
+      - Each card must include title and detail.
+      - title should be concise and specific to one aspect.
+      - detail should be concrete and editable by a user.
+      - Avoid duplicates and broad generic cards.
+
+      Return as JSON.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            aspects: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  detail: { type: Type.STRING },
+                },
+                required: ['title', 'detail'],
+              },
+            },
+          },
+          required: ['aspects'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text) as { aspects?: ExpandAspectDraft[] };
+    return Array.isArray(parsed.aspects) ? parsed.aspects : [];
+  },
+
+  async generateExpandAspect(
+    block: ThinkingBlock,
+    existingAspects: { title: string; detail: string; context: string }[],
+  ): Promise<ExpandAspectDraft> {
+    if (!genAI) {
+      throw new Error('AI not configured');
+    }
+
+    const existingText = existingAspects
+      .map(
+        (aspect, index) =>
+          `${index + 1}. ${aspect.title}\nDetail: ${aspect.detail}\nContext: ${aspect.context || 'None'}`,
+      )
+      .join('\n\n');
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Create one additional expansion aspect card for this idea.
+      Title: ${block.title}
+      Summary: ${block.summary}
+      Notes: ${block.content}
+
+      Existing expansion cards:
+      ${existingText || 'None'}
+
+      Requirements:
+      - Return one non-duplicate card.
+      - Include: title, detail.
+      - Keep title concise and detail concrete.
+
+      Return as JSON.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            detail: { type: Type.STRING },
+          },
+          required: ['title', 'detail'],
+        },
+      },
+    });
+
+    return JSON.parse(response.text);
+  },
+
+  async synthesizeExpandBoard(
+    block: ThinkingBlock,
+    cards: Array<{ title: string; detail: string; context: string }>,
+  ): Promise<{ summary: string; content: string }> {
+    if (!genAI) {
+      throw new Error('AI not configured');
+    }
+
+    const cardsText = cards
+      .map((item, index) => {
+        const contextLine = item.context ? `\nUser Context: ${item.context}` : '';
+        return `${index + 1}. ${item.title}\nDetail: ${item.detail}${contextLine}`;
+      })
+      .join('\n\n');
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Update this idea block using the expansion board cards.
+      Current block title: ${block.title}
+      Current summary: ${block.summary}
+      Current notes: ${block.content}
+
+      Expansion cards:
+      ${cardsText}
+
+      Return an improved summary and content that integrate the expansion details.
+      Keep it concrete, preserve the original intent, and avoid fluff.
+      Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {

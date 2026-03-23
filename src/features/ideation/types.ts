@@ -22,6 +22,24 @@ export interface Suggestion {
   description: string;
 }
 
+export interface ExpandAspectDraft {
+  title: string;
+  detail: string;
+}
+
+export interface ExpandAspectCard {
+  id: string;
+  title: string;
+  detail: string;
+  context: string;
+  source: 'ai' | 'custom';
+}
+
+export interface ExpandBoard {
+  blockId: string;
+  cards: ExpandAspectCard[];
+}
+
 export interface ScaffoldingBlock {
   title: string;
   summary: string;
@@ -54,6 +72,4 @@ export interface ClarifyBoard {
   cards: ClarifyQuestionCard[];
 }
 
-export type AiOutput =
-  | { type: 'expand'; content: { summary: string; content: string } }
-  | { type: 'suggest'; content: Suggestion[] };
+export type AiOutput = { type: 'suggest'; content: Suggestion[] };
