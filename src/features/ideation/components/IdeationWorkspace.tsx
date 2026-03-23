@@ -7,10 +7,12 @@ import { RightSidebar } from './RightSidebar';
 import { DeleteBlockConfirmModal } from './modals/DeleteBlockConfirmModal';
 import { DeleteProjectConfirmModal } from './modals/DeleteProjectConfirmModal';
 import { DeleteQuestionBoardConfirmModal } from './modals/DeleteQuestionBoardConfirmModal';
+import { ExpandBoardModal } from './modals/ExpandBoardModal';
 import { NewProjectModal } from './modals/NewProjectModal';
 import { QuestionBoardModal } from './modals/QuestionBoardModal';
 
 export function IdeationWorkspace() {
+  const [isExpandBoardOpen, setIsExpandBoardOpen] = useState(false);
   const [isQuestionBoardOpen, setIsQuestionBoardOpen] = useState(false);
   const [showDeleteQuestionBoardConfirm, setShowDeleteQuestionBoardConfirm] = useState(false);
 
@@ -24,9 +26,14 @@ export function IdeationWorkspace() {
     searchQuery,
     setSearchQuery,
     isAiLoading,
+    isSubmittingExpandBoard,
     isSubmittingClarifyBoard,
     aiOutput,
     setAiOutput,
+    expandBoard,
+    expandBoardError,
+    expandBoardIncompleteIds,
+    expandBoardCompletion,
     clarifyBoard,
     clarifyBoardError,
     clarifyBoardUnansweredIds,
@@ -58,7 +65,13 @@ export function IdeationWorkspace() {
     deleteProject,
     toggleNode,
     handleAiAction,
-    applyAiExpansion,
+    setExpandCardDetail,
+    setExpandCardContext,
+    deleteExpandCard,
+    addCustomExpandCard,
+    addAiExpandCard,
+    submitExpandBoard,
+    clearExpandBoard,
     setQuestionCardAnswer,
     setQuestionCardNote,
     addQuestionOption,
@@ -129,6 +142,26 @@ export function IdeationWorkspace() {
       </AnimatePresence>
 
       <AnimatePresence>
+        <ExpandBoardModal
+          isOpen={isExpandBoardOpen}
+          selectedId={selectedId}
+          isAiLoading={isAiLoading}
+          isSubmittingExpandBoard={isSubmittingExpandBoard}
+          expandBoard={expandBoard}
+          expandBoardError={expandBoardError}
+          expandBoardIncompleteIds={expandBoardIncompleteIds}
+          expandBoardCompletion={expandBoardCompletion}
+          onClose={() => setIsExpandBoardOpen(false)}
+          onSetExpandCardDetail={setExpandCardDetail}
+          onSetExpandCardContext={setExpandCardContext}
+          onDeleteExpandCard={deleteExpandCard}
+          onAddCustomExpandCard={addCustomExpandCard}
+          onAddAiExpandCard={addAiExpandCard}
+          onSubmitExpandBoard={submitExpandBoard}
+        />
+      </AnimatePresence>
+
+      <AnimatePresence>
         <QuestionBoardModal
           isOpen={isQuestionBoardOpen}
           selectedId={selectedId}
@@ -180,15 +213,30 @@ export function IdeationWorkspace() {
         rightWidth={rightWidth}
         selectedId={selectedId}
         isAiLoading={isAiLoading}
+        isSubmittingExpandBoard={isSubmittingExpandBoard}
         isSubmittingClarifyBoard={isSubmittingClarifyBoard}
         aiOutput={aiOutput}
+        expandBoard={expandBoard}
+        expandBoardError={expandBoardError}
+        expandBoardIncompleteIds={expandBoardIncompleteIds}
+        expandBoardCompletion={expandBoardCompletion}
         clarifyBoard={clarifyBoard}
         clarifyBoardError={clarifyBoardError}
         clarifyBoardUnansweredIds={clarifyBoardUnansweredIds}
         clarifyBoardCompletion={clarifyBoardCompletion}
         onSetAiOutput={setAiOutput}
-        onAiAction={handleAiAction}
-        onApplyExpansion={applyAiExpansion}
+        onAiAction={(action) => {
+          void handleAiAction(action).then(() => {
+            if (action === 'expand' && selectedId) {
+              setIsExpandBoardOpen(true);
+            }
+          });
+        }}
+        onOpenExpandBoard={() => setIsExpandBoardOpen(true)}
+        onClearExpandBoard={() => {
+          clearExpandBoard();
+          setIsExpandBoardOpen(false);
+        }}
         onOpenQuestionBoard={() => setIsQuestionBoardOpen(true)}
         onRequestDeleteQuestionBoard={() => setShowDeleteQuestionBoardConfirm(true)}
         onAddSuggestedBlock={addSuggestedBlock}

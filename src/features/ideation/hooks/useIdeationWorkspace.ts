@@ -6,6 +6,9 @@ import {
   ClarifyBoard,
   ClarifyQuestionCard,
   ClarifyQuestionDraft,
+  ExpandAspectCard,
+  ExpandAspectDraft,
+  ExpandBoard,
   QuestionCardType,
   Suggestion,
   ThinkingBlock,
@@ -42,6 +45,16 @@ function buildQuestionCard(draft: ClarifyQuestionDraft, source: 'ai' | 'custom')
   };
 }
 
+function buildExpandCard(draft: ExpandAspectDraft, source: 'ai' | 'custom'): ExpandAspectCard {
+  return {
+    id: createId(),
+    title: draft.title?.trim() || 'Untitled aspect',
+    detail: draft.detail?.trim() || 'Add detail for this expansion aspect.',
+    context: '',
+    source,
+  };
+}
+
 function isAnswered(card: ClarifyQuestionCard): boolean {
   if (card.type === 'multi') {
     return Array.isArray(card.answer) && card.answer.length > 0;
@@ -56,6 +69,10 @@ function serializeAnswer(card: ClarifyQuestionCard): string {
   }
 
   return typeof card.answer === 'string' ? card.answer : '';
+}
+
+function hasExpandDetail(card: ExpandAspectCard): boolean {
+  return card.detail.trim().length > 0;
 }
 
 export function useIdeationWorkspace() {
@@ -77,8 +94,11 @@ export function useIdeationWorkspace() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isSubmittingExpandBoard, setIsSubmittingExpandBoard] = useState(false);
   const [isSubmittingClarifyBoard, setIsSubmittingClarifyBoard] = useState(false);
   const [aiOutput, setAiOutput] = useState<AiOutput | null>(null);
+  const [expandBoard, setExpandBoard] = useState<ExpandBoard | null>(null);
+  const [expandBoardError, setExpandBoardError] = useState<string | null>(null);
   const [clarifyBoard, setClarifyBoard] = useState<ClarifyBoard | null>(null);
   const [clarifyBoardError, setClarifyBoardError] = useState<string | null>(null);
   const [artifactDraft, setArtifactDraft] = useState<string | null>(null);
@@ -124,6 +144,23 @@ export function useIdeationWorkspace() {
 
     return clarifyBoard.cards.filter((card) => !isAnswered(card)).map((card) => card.id);
   }, [clarifyBoard]);
+
+  const expandBoardIncompleteIds = useMemo(() => {
+    if (!expandBoard) {
+      return [];
+    }
+
+    return expandBoard.cards.filter((card) => !hasExpandDetail(card)).map((card) => card.id);
+  }, [expandBoard]);
+
+  const expandBoardCompletion = useMemo(() => {
+    if (!expandBoard || expandBoard.cards.length === 0) {
+      return 0;
+    }
+
+    const detailedCount = expandBoard.cards.filter((card) => hasExpandDetail(card)).length;
+    return Math.round((detailedCount / expandBoard.cards.length) * 100);
+  }, [expandBoard]);
 
   const clarifyBoardCompletion = useMemo(() => {
     if (!clarifyBoard || clarifyBoard.cards.length === 0) {
@@ -275,8 +312,13 @@ export function useIdeationWorkspace() {
     try {
       switch (action) {
         case 'expand': {
-          const expanded = await ideationAiService.expandBlock(selectedBlock);
-          setAiOutput({ type: 'expand', content: expanded });
+          const aspects = await ideationAiService.expandBlock(selectedBlock);
+          const cards = aspects.map((aspect) => buildExpandCard(aspect, 'ai'));
+          setExpandBoard({
+            blockId: selectedBlock.id,
+            cards,
+          });
+          setExpandBoardError(null);
           break;
         }
         case 'clarify': {
@@ -307,6 +349,154 @@ export function useIdeationWorkspace() {
     } finally {
       setIsAiLoading(false);
     }
+  };
+
+  const updateExpandCard = (cardId: string, updater: (card: ExpandAspectCard) => ExpandAspectCard) => {
+    setExpandBoard((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        cards: prev.cards.map((card) => (card.id === cardId ? updater(card) : card)),
+      };
+    });
+    setExpandBoardError(null);
+  };
+
+  const setExpandCardDetail = (cardId: string, detail: string) => {
+    updateExpandCard(cardId, (card) => ({ ...card, detail }));
+  };
+
+  const setExpandCardContext = (cardId: string, context: string) => {
+    updateExpandCard(cardId, (card) => ({ ...card, context }));
+  };
+
+  const deleteExpandCard = (cardId: string) => {
+    setExpandBoard((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        cards: prev.cards.filter((card) => card.id !== cardId),
+      };
+    });
+    setExpandBoardError(null);
+  };
+
+  const addCustomExpandCard = () => {
+    const draft: ExpandAspectDraft = {
+      title: 'Custom aspect',
+      detail: 'Describe the additional detail you want to add here.',
+    };
+
+    setExpandBoard((prev) => {
+      if (!selectedId) {
+        return prev;
+      }
+
+      if (!prev || prev.blockId !== selectedId) {
+        return {
+          blockId: selectedId,
+          cards: [buildExpandCard(draft, 'custom')],
+        };
+      }
+
+      return {
+        ...prev,
+        cards: [...prev.cards, buildExpandCard(draft, 'custom')],
+      };
+    });
+    setExpandBoardError(null);
+  };
+
+  const addAiExpandCard = async () => {
+    if (!selectedBlock) {
+      return;
+    }
+
+    const existingAspects =
+      expandBoard?.cards.map((card) => ({
+        title: card.title,
+        detail: card.detail,
+        context: card.context,
+      })) ?? [];
+
+    setIsAiLoading(true);
+
+    try {
+      const aspect = await ideationAiService.generateExpandAspect(selectedBlock, existingAspects);
+      setExpandBoard((prev) => {
+        if (!prev || prev.blockId !== selectedBlock.id) {
+          return {
+            blockId: selectedBlock.id,
+            cards: [buildExpandCard(aspect, 'ai')],
+          };
+        }
+
+        return {
+          ...prev,
+          cards: [...prev.cards, buildExpandCard(aspect, 'ai')],
+        };
+      });
+      setExpandBoardError(null);
+    } catch (error) {
+      console.error(error);
+      alert('Failed to generate additional expansion card.');
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const submitExpandBoard = async (): Promise<boolean> => {
+    if (!selectedBlock || !selectedId || !expandBoard || expandBoard.blockId !== selectedId) {
+      setExpandBoardError('Generate or create an expand board for the selected block first.');
+      return false;
+    }
+
+    if (expandBoard.cards.length === 0) {
+      setExpandBoardError('Add at least one expansion card before submitting.');
+      return false;
+    }
+
+    const unresolvedCount = expandBoard.cards.filter((card) => !hasExpandDetail(card)).length;
+    if (unresolvedCount > 0) {
+      setExpandBoardError('Fill in all expansion card details before submit.');
+      return false;
+    }
+
+    const payload = expandBoard.cards.map((card) => ({
+      title: card.title,
+      detail: card.detail.trim(),
+      context: card.context.trim(),
+    }));
+
+    setIsSubmittingExpandBoard(true);
+
+    try {
+      const synthesis = await ideationAiService.synthesizeExpandBoard(selectedBlock, payload);
+      updateBlock(selectedId, {
+        summary: synthesis.summary,
+        content: synthesis.content,
+      });
+      setExpandBoardError(null);
+      setExpandBoard(null);
+      return true;
+    } catch (error) {
+      console.error(error);
+      setExpandBoardError('Failed to submit expansion cards and update the selected block.');
+      return false;
+    } finally {
+      setIsSubmittingExpandBoard(false);
+    }
+  };
+
+  const clearExpandBoard = () => {
+    setExpandBoard(null);
+    setExpandBoardError(null);
   };
 
   const updateQuestionCard = (cardId: string, updater: (card: ClarifyQuestionCard) => ClarifyQuestionCard) => {
@@ -481,16 +671,6 @@ export function useIdeationWorkspace() {
     setClarifyBoardError(null);
   };
 
-  const applyAiExpansion = () => {
-    if (aiOutput?.type === 'expand' && selectedId) {
-      updateBlock(selectedId, {
-        summary: aiOutput.content.summary,
-        content: aiOutput.content.content,
-      });
-      setAiOutput(null);
-    }
-  };
-
   const addSuggestedBlock = (suggestion: Suggestion) => {
     if (!selectedId) {
       return;
@@ -530,9 +710,14 @@ export function useIdeationWorkspace() {
     searchQuery,
     setSearchQuery,
     isAiLoading,
+    isSubmittingExpandBoard,
     isSubmittingClarifyBoard,
     aiOutput,
     setAiOutput,
+    expandBoard,
+    expandBoardError,
+    expandBoardIncompleteIds,
+    expandBoardCompletion,
     clarifyBoard,
     clarifyBoardError,
     clarifyBoardUnansweredIds,
@@ -566,7 +751,13 @@ export function useIdeationWorkspace() {
     deleteProject,
     toggleNode,
     handleAiAction,
-    applyAiExpansion,
+    setExpandCardDetail,
+    setExpandCardContext,
+    deleteExpandCard,
+    addCustomExpandCard,
+    addAiExpandCard,
+    submitExpandBoard,
+    clearExpandBoard,
     setQuestionCardAnswer,
     setQuestionCardNote,
     addQuestionOption,
