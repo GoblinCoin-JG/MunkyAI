@@ -56,7 +56,12 @@ export function BlockTree({
                   )}
                 </div>
                 <FileText size={14} className="mr-2 opacity-60" />
-                <span className="text-sm truncate flex-1">{block.title}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{block.title}</p>
+                  {block.artifactBody && (
+                    <p className="text-[11px] text-zinc-500 truncate">{block.artifactBody.replace(/\n+/g, ' ')}</p>
+                  )}
+                </div>
                 <button
                   className="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400 transition-opacity"
                   onClick={(event) => {

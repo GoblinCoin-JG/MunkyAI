@@ -1,22 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { INITIAL_BLOCKS, INITIAL_PROJECT_ID, INITIAL_PROJECTS, STORAGE_KEYS } from '../constants';
 import { ideationAiService } from '../services/ideationAiService';
+import { migrateStoredBlocks } from '../services/blockStorage';
 import {
   AiOutput,
+  ChallengeItem,
+  ChallengeItemDraft,
+  ChallengeResult,
   ClarifyBoard,
   ClarifyQuestionCard,
   ClarifyQuestionDraft,
   ExpandAspectCard,
   ExpandAspectDraft,
   ExpandBoard,
+  Project,
   QuestionCardType,
   Suggestion,
   ThinkingBlock,
-  Project,
 } from '../types';
 import { collectDescendantIds } from '../utils/blockTree';
 import { createId } from '../../../utils/createId';
-import { downloadTextFile } from '../../../utils/downloadTextFile';
 import { useResizablePanels } from './useResizablePanels';
 
 function normalizeQuestionType(value: string): QuestionCardType {
@@ -55,6 +58,17 @@ function buildExpandCard(draft: ExpandAspectDraft, source: 'ai' | 'custom'): Exp
   };
 }
 
+function buildChallengeItem(draft: ChallengeItemDraft): ChallengeItem {
+  return {
+    id: createId(),
+    keyPoint: draft.keyPoint?.trim() || 'Untitled key point',
+    challengePrompt: draft.challengePrompt?.trim() || 'Clarify this part of the artifact.',
+    whyItMatters: draft.whyItMatters?.trim() || 'This impacts clarity and execution quality.',
+    userResponse: '',
+    status: 'open',
+  };
+}
+
 function isAnswered(card: ClarifyQuestionCard): boolean {
   if (card.type === 'multi') {
     return Array.isArray(card.answer) && card.answer.length > 0;
@@ -75,6 +89,28 @@ function hasExpandDetail(card: ExpandAspectCard): boolean {
   return card.detail.trim().length > 0;
 }
 
+function isChallengeAnswered(item: ChallengeItem): boolean {
+  return item.userResponse.trim().length > 0;
+}
+
+function appendChallengeResponses(artifactBody: string, items: ChallengeItem[]): string {
+  const answered = items.filter((item) => isChallengeAnswered(item));
+  if (answered.length === 0) {
+    return artifactBody;
+  }
+
+  const responseSection = answered
+    .map((item) => `### ${item.keyPoint}\n- Challenge: ${item.challengePrompt}\n- Response: ${item.userResponse.trim()}`)
+    .join('\n\n');
+
+  const normalizedBody = artifactBody.trim();
+  if (!normalizedBody) {
+    return `## Challenge Responses\n\n${responseSection}`;
+  }
+
+  return `${normalizedBody}\n\n## Challenge Responses\n\n${responseSection}`;
+}
+
 export function useIdeationWorkspace() {
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.projects);
@@ -88,7 +124,7 @@ export function useIdeationWorkspace() {
 
   const [blocks, setBlocks] = useState<ThinkingBlock[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.blocks);
-    return saved ? JSON.parse(saved) : INITIAL_BLOCKS;
+    return migrateStoredBlocks(saved, INITIAL_BLOCKS);
   });
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -101,7 +137,8 @@ export function useIdeationWorkspace() {
   const [expandBoardError, setExpandBoardError] = useState<string | null>(null);
   const [clarifyBoard, setClarifyBoard] = useState<ClarifyBoard | null>(null);
   const [clarifyBoardError, setClarifyBoardError] = useState<string | null>(null);
-  const [artifactDraft, setArtifactDraft] = useState<string | null>(null);
+  const [challengeResult, setChallengeResult] = useState<ChallengeResult | null>(null);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['1']));
   const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
   const [deleteProjectConfirmationId, setDeleteProjectConfirmationId] = useState<string | null>(null);
@@ -171,14 +208,34 @@ export function useIdeationWorkspace() {
     return Math.round((answeredCount / clarifyBoard.cards.length) * 100);
   }, [clarifyBoard]);
 
+  const challengeOpenCount = useMemo(() => {
+    if (!challengeResult) {
+      return 0;
+    }
+
+    return challengeResult.items.filter((item) => item.status === 'open').length;
+  }, [challengeResult]);
+
+  const challengeAnsweredCount = useMemo(() => {
+    if (!challengeResult) {
+      return 0;
+    }
+
+    return challengeResult.items.filter((item) => item.status === 'answered' || item.status === 'resolved').length;
+  }, [challengeResult]);
+
   const filteredBlocks = useMemo(() => {
-    if (!searchQuery) {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) {
       return projectBlocks;
     }
 
-    return projectBlocks.filter((block) =>
-      block.title.toLowerCase().includes(searchQuery.toLowerCase()),
-    );
+    return projectBlocks.filter((block) => {
+      const inTitle = block.title.toLowerCase().includes(normalizedQuery);
+      const inBody = block.artifactBody.toLowerCase().includes(normalizedQuery);
+      const inTags = block.tags.some((tag) => tag.toLowerCase().includes(normalizedQuery));
+      return inTitle || inBody || inTags;
+    });
   }, [projectBlocks, searchQuery]);
 
   const createProject = async () => {
@@ -204,8 +261,7 @@ export function useIdeationWorkspace() {
         projectId: newProjectId,
         parentId: null,
         title: scaffold.projectName,
-        summary: newProjectIdea,
-        content: '',
+        artifactBody: newProjectIdea.trim(),
         tags: ['root'],
         maturityState: 'Exploratory',
       };
@@ -215,8 +271,7 @@ export function useIdeationWorkspace() {
         projectId: newProjectId,
         parentId: rootBlockId,
         title: block.title,
-        summary: block.summary,
-        content: block.content,
+        artifactBody: block.artifactBody,
         tags: block.tags,
         maturityState: 'Exploratory',
       }));
@@ -242,8 +297,7 @@ export function useIdeationWorkspace() {
       projectId: activeProjectId,
       parentId,
       title: 'New Block',
-      summary: '',
-      content: '',
+      artifactBody: '',
       tags: [],
       maturityState: 'Exploratory',
     };
@@ -301,7 +355,7 @@ export function useIdeationWorkspace() {
     });
   };
 
-  const handleAiAction = async (action: 'expand' | 'clarify' | 'suggest' | 'artifact') => {
+  const handleAiAction = async (action: 'expand' | 'clarify' | 'suggest' | 'challenge') => {
     if (!selectedBlock) {
       return;
     }
@@ -336,16 +390,22 @@ export function useIdeationWorkspace() {
           setAiOutput({ type: 'suggest', content: suggestions });
           break;
         }
-        case 'artifact': {
-          const children = projectBlocks.filter((block) => block.parentId === selectedBlock.id);
-          const draft = await ideationAiService.generateArtifact(selectedBlock, children);
-          setArtifactDraft(draft);
+        case 'challenge': {
+          const challengeDrafts = await ideationAiService.challengeBlock(selectedBlock);
+          setChallengeResult({
+            items: challengeDrafts.map(buildChallengeItem),
+          });
+          setChallengeError(null);
           break;
         }
       }
     } catch (error) {
       console.error(error);
-      alert('AI Action failed. Check console.');
+      const message = 'AI Action failed. Check console.';
+      if (action === 'challenge') {
+        setChallengeError('Failed to generate challenge prompts.');
+      }
+      alert(message);
     } finally {
       setIsAiLoading(false);
     }
@@ -479,8 +539,7 @@ export function useIdeationWorkspace() {
     try {
       const synthesis = await ideationAiService.synthesizeExpandBoard(selectedBlock, payload);
       updateBlock(selectedId, {
-        summary: synthesis.summary,
-        content: synthesis.content,
+        artifactBody: synthesis.artifactBody,
       });
       setExpandBoardError(null);
       setExpandBoard(null);
@@ -653,8 +712,7 @@ export function useIdeationWorkspace() {
     try {
       const synthesis = await ideationAiService.synthesizeClarifyAnswers(selectedBlock, payload);
       updateBlock(selectedId, {
-        summary: synthesis.summary,
-        content: synthesis.content,
+        artifactBody: synthesis.artifactBody,
       });
       setClarifyBoardError(null);
       setClarifyBoard(null);
@@ -681,8 +739,7 @@ export function useIdeationWorkspace() {
       projectId: activeProjectId,
       parentId: selectedId,
       title: suggestion.title,
-      summary: suggestion.description,
-      content: '',
+      artifactBody: suggestion.description,
       tags: [],
       maturityState: 'Exploratory',
     };
@@ -691,13 +748,51 @@ export function useIdeationWorkspace() {
     setExpandedNodes((prev) => new Set(prev).add(selectedId));
   };
 
-  const exportArtifact = (title: string) => {
-    if (!artifactDraft) {
+  const updateChallengeItem = (itemId: string, updater: (item: ChallengeItem) => ChallengeItem) => {
+    setChallengeResult((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        items: prev.items.map((item) => (item.id === itemId ? updater(item) : item)),
+      };
+    });
+  };
+
+  const setChallengeItemResponse = (itemId: string, userResponse: string) => {
+    updateChallengeItem(itemId, (item) => ({
+      ...item,
+      userResponse,
+      status: userResponse.trim().length > 0 ? 'answered' : 'open',
+    }));
+  };
+
+  const setChallengeItemStatus = (itemId: string, status: ChallengeItem['status']) => {
+    updateChallengeItem(itemId, (item) => ({ ...item, status }));
+  };
+
+  const clearChallenge = () => {
+    setChallengeResult(null);
+    setChallengeError(null);
+  };
+
+  const applyChallengeResponsesToBlock = () => {
+    if (!selectedBlock || !challengeResult) {
       return;
     }
 
-    const filename = `${title.toLowerCase().replace(/\s+/g, '-')}-artifact.md`;
-    downloadTextFile(filename, artifactDraft, 'text/markdown');
+    const nextBody = appendChallengeResponses(selectedBlock.artifactBody, challengeResult.items);
+    updateBlock(selectedBlock.id, { artifactBody: nextBody });
+
+    setChallengeResult({
+      items: challengeResult.items.map((item) => {
+        if (item.userResponse.trim().length > 0) {
+          return { ...item, status: 'resolved' };
+        }
+        return item;
+      }),
+    });
   };
 
   return {
@@ -722,8 +817,10 @@ export function useIdeationWorkspace() {
     clarifyBoardError,
     clarifyBoardUnansweredIds,
     clarifyBoardCompletion,
-    artifactDraft,
-    setArtifactDraft,
+    challengeResult,
+    challengeError,
+    challengeOpenCount,
+    challengeAnsweredCount,
     expandedNodes,
     deleteConfirmationId,
     setDeleteConfirmationId,
@@ -767,6 +864,9 @@ export function useIdeationWorkspace() {
     submitQuestionBoard,
     clearQuestionBoard,
     addSuggestedBlock,
-    exportArtifact,
+    setChallengeItemResponse,
+    setChallengeItemStatus,
+    clearChallenge,
+    applyChallengeResponsesToBlock,
   };
 }

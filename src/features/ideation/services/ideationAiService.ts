@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import {
+  ChallengeItemDraft,
   ClarifyQuestionDraft,
   ExpandAspectDraft,
   ScaffoldingBlock,
@@ -23,7 +24,7 @@ export const ideationAiService = {
       contents: `Analyze this idea and generate a structured project name and a set of 4-6 initial thinking blocks to explore it.
       Idea: ${idea}
 
-      Each block should have a title, a one-sentence summary, a paragraph of starting content/notes, and 2-3 relevant tags.
+      Each block should have a title, a markdown-friendly artifact body (2-5 short paragraphs or bullet points), and 2-3 relevant tags.
       Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
@@ -37,11 +38,10 @@ export const ideationAiService = {
                 type: Type.OBJECT,
                 properties: {
                   title: { type: Type.STRING },
-                  summary: { type: Type.STRING },
-                  content: { type: Type.STRING },
+                  artifactBody: { type: Type.STRING },
                   tags: { type: Type.ARRAY, items: { type: Type.STRING } },
                 },
-                required: ['title', 'summary', 'content', 'tags'],
+                required: ['title', 'artifactBody', 'tags'],
               },
             },
           },
@@ -62,8 +62,9 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Generate 4-6 expansion aspect cards for this idea block.
       Title: ${block.title}
-      Current Summary: ${block.summary}
-      Current Notes: ${block.content}
+      Artifact body: ${block.artifactBody}
+      Maturity: ${block.maturityState}
+      Tags: ${block.tags.join(', ') || 'none'}
 
       Requirements:
       - Each card must include title and detail.
@@ -117,8 +118,9 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Create one additional expansion aspect card for this idea.
       Title: ${block.title}
-      Summary: ${block.summary}
-      Notes: ${block.content}
+      Artifact body: ${block.artifactBody}
+      Maturity: ${block.maturityState}
+      Tags: ${block.tags.join(', ') || 'none'}
 
       Existing expansion cards:
       ${existingText || 'None'}
@@ -148,7 +150,7 @@ export const ideationAiService = {
   async synthesizeExpandBoard(
     block: ThinkingBlock,
     cards: Array<{ title: string; detail: string; context: string }>,
-  ): Promise<{ summary: string; content: string }> {
+  ): Promise<{ artifactBody: string }> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
@@ -162,15 +164,15 @@ export const ideationAiService = {
 
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Update this idea block using the expansion board cards.
+      contents: `Update this idea block artifact using the expansion board cards.
       Current block title: ${block.title}
-      Current summary: ${block.summary}
-      Current notes: ${block.content}
+      Current artifact body:
+      ${block.artifactBody}
 
       Expansion cards:
       ${cardsText}
 
-      Return an improved summary and content that integrate the expansion details.
+      Return one improved artifactBody that integrates the expansion details.
       Keep it concrete, preserve the original intent, and avoid fluff.
       Return as JSON.`,
       config: {
@@ -178,10 +180,9 @@ export const ideationAiService = {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            summary: { type: Type.STRING },
-            content: { type: Type.STRING },
+            artifactBody: { type: Type.STRING },
           },
-          required: ['summary', 'content'],
+          required: ['artifactBody'],
         },
       },
     });
@@ -198,8 +199,9 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Generate 4-6 structured clarification question cards for this idea:
       Title: ${block.title}
-      Summary: ${block.summary}
-      Notes: ${block.content}
+      Artifact body: ${block.artifactBody}
+      Maturity: ${block.maturityState}
+      Tags: ${block.tags.join(', ') || 'none'}
 
       Requirements:
       - Each item must include: title, prompt, type, options.
@@ -257,8 +259,9 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Create one additional clarification question card for this idea.
       Title: ${block.title}
-      Summary: ${block.summary}
-      Notes: ${block.content}
+      Artifact body: ${block.artifactBody}
+      Maturity: ${block.maturityState}
+      Tags: ${block.tags.join(', ') || 'none'}
 
       Existing question cards:
       ${existingText || 'None'}
@@ -295,7 +298,7 @@ export const ideationAiService = {
   async synthesizeClarifyAnswers(
     block: ThinkingBlock,
     answers: Array<{ title: string; prompt: string; answer: string; note: string }>,
-  ): Promise<{ summary: string; content: string }> {
+  ): Promise<{ artifactBody: string }> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
@@ -309,26 +312,25 @@ export const ideationAiService = {
 
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Update this idea block using the answered clarification board.
+      contents: `Update this idea block artifact using answered clarification cards.
       Current block title: ${block.title}
-      Current summary: ${block.summary}
-      Current notes: ${block.content}
+      Current artifact body:
+      ${block.artifactBody}
 
       Clarification answers:
       ${answerText}
 
-      Return an improved summary and content that integrate the new details.
-      Keep it concrete, and preserve the original intent.
+      Return one improved artifactBody that integrates the new details.
+      Keep it concrete and preserve the original intent.
       Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            summary: { type: Type.STRING },
-            content: { type: Type.STRING },
+            artifactBody: { type: Type.STRING },
           },
-          required: ['summary', 'content'],
+          required: ['artifactBody'],
         },
       },
     });
@@ -343,9 +345,10 @@ export const ideationAiService = {
 
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Suggest 3 related sub-ideas (child blocks) for:
+      contents: `Suggest 3 related child idea blocks for:
       Title: ${block.title}
-      Summary: ${block.summary}
+      Artifact body: ${block.artifactBody}
+      Tags: ${block.tags.join(', ') || 'none'}
 
       Return as a JSON array of objects with 'title' and 'description'.`,
       config: {
@@ -367,28 +370,53 @@ export const ideationAiService = {
     return JSON.parse(response.text);
   },
 
-  async generateArtifact(block: ThinkingBlock, children: ThinkingBlock[]): Promise<string> {
+  async challengeBlock(block: ThinkingBlock): Promise<ChallengeItemDraft[]> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
 
-    const childrenText = children
-      .map((child) => `### ${child.title}\n${child.summary}\n${child.content}`)
-      .join('\n\n');
-
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Generate a polished markdown artifact draft based on this block and its children.
-      Main Block: ${block.title}
-      Summary: ${block.summary}
-      Notes: ${block.content}
+      contents: `You are a thoughtful collaborator. Analyze this artifact and create concise, answerable challenge items.
 
-      Children:
-      ${childrenText}
+      Block title: ${block.title}
+      Maturity: ${block.maturityState}
+      Tags: ${block.tags.join(', ') || 'none'}
+      Artifact body:
+      ${block.artifactBody}
 
-      Return the markdown text directly.`,
+      Requirements:
+      - Generate around 3-7 items based on content depth.
+      - Focus on key assumptions, vagueness, missing decisions, scope risks, and unclear intent.
+      - Avoid nitpicking wording.
+      - Each item must include keyPoint, challengePrompt, whyItMatters.
+      - challengePrompt must be concrete enough for a single user response.
+
+      Return as JSON.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  keyPoint: { type: Type.STRING },
+                  challengePrompt: { type: Type.STRING },
+                  whyItMatters: { type: Type.STRING },
+                },
+                required: ['keyPoint', 'challengePrompt', 'whyItMatters'],
+              },
+            },
+          },
+          required: ['items'],
+        },
+      },
     });
 
-    return response.text;
+    const parsed = JSON.parse(response.text) as { items?: ChallengeItemDraft[] };
+    return Array.isArray(parsed.items) ? parsed.items : [];
   },
 };

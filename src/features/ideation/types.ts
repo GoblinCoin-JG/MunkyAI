@@ -11,8 +11,7 @@ export interface ThinkingBlock {
   projectId: string;
   parentId: string | null;
   title: string;
-  summary: string;
-  content: string;
+  artifactBody: string;
   tags: string[];
   maturityState: MaturityState;
 }
@@ -42,9 +41,29 @@ export interface ExpandBoard {
 
 export interface ScaffoldingBlock {
   title: string;
-  summary: string;
-  content: string;
+  artifactBody: string;
   tags: string[];
+}
+
+export type ChallengeStatus = 'open' | 'answered' | 'skipped' | 'resolved';
+
+export interface ChallengeItem {
+  id: string;
+  keyPoint: string;
+  challengePrompt: string;
+  whyItMatters: string;
+  userResponse: string;
+  status: ChallengeStatus;
+}
+
+export interface ChallengeItemDraft {
+  keyPoint: string;
+  challengePrompt: string;
+  whyItMatters: string;
+}
+
+export interface ChallengeResult {
+  items: ChallengeItem[];
 }
 
 export type QuestionCardType = 'textarea' | 'single' | 'multi';

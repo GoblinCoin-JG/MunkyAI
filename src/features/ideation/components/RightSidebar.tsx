@@ -1,7 +1,7 @@
-import { FileText, MessageSquare, Plus, Sparkles, Trash2, X, Zap } from 'lucide-react';
+import { Brain, MessageSquare, Plus, Sparkles, Trash2, X, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo } from 'react';
-import { AiOutput, ClarifyBoard, ExpandBoard, Suggestion } from '../types';
+import { AiOutput, ChallengeResult, ClarifyBoard, ExpandBoard, Suggestion } from '../types';
 
 interface RightSidebarProps {
   rightWidth: number;
@@ -18,12 +18,18 @@ interface RightSidebarProps {
   clarifyBoardError: string | null;
   clarifyBoardUnansweredIds: string[];
   clarifyBoardCompletion: number;
+  challengeResult: ChallengeResult | null;
+  challengeError: string | null;
+  challengeOpenCount: number;
+  challengeAnsweredCount: number;
   onSetAiOutput: (output: AiOutput | null) => void;
-  onAiAction: (action: 'expand' | 'clarify' | 'suggest' | 'artifact') => void;
+  onAiAction: (action: 'expand' | 'clarify' | 'suggest' | 'challenge') => void;
   onOpenExpandBoard: () => void;
   onClearExpandBoard: () => void;
   onOpenQuestionBoard: () => void;
   onRequestDeleteQuestionBoard: () => void;
+  onOpenChallengeModal: () => void;
+  onClearChallenge: () => void;
   onAddSuggestedBlock: (suggestion: Suggestion) => void;
 }
 
@@ -42,12 +48,18 @@ export function RightSidebar({
   clarifyBoardError,
   clarifyBoardUnansweredIds,
   clarifyBoardCompletion,
+  challengeResult,
+  challengeError,
+  challengeOpenCount,
+  challengeAnsweredCount,
   onSetAiOutput,
   onAiAction,
   onOpenExpandBoard,
   onClearExpandBoard,
   onOpenQuestionBoard,
   onRequestDeleteQuestionBoard,
+  onOpenChallengeModal,
+  onClearChallenge,
   onAddSuggestedBlock,
 }: RightSidebarProps) {
   const hasExpandBoardForSelection = Boolean(
@@ -77,6 +89,14 @@ export function RightSidebar({
 
     return `${clarifyBoard.cards.length} cards`;
   }, [clarifyBoard, hasBoardForSelection]);
+
+  const challengeSummary = useMemo(() => {
+    if (!challengeResult) {
+      return 'No challenge set';
+    }
+
+    return `${challengeResult.items.length} items`;
+  }, [challengeResult]);
 
   return (
     <aside className="border-l border-zinc-800 flex flex-col bg-zinc-900/50 shrink-0" style={{ width: rightWidth }}>
@@ -112,12 +132,12 @@ export function RightSidebar({
             <span className="text-[10px] font-bold uppercase tracking-wider">Suggest</span>
           </button>
           <button
-            onClick={() => onAiAction('artifact')}
+            onClick={() => onAiAction('challenge')}
             disabled={isAiLoading || !selectedId}
             className="flex flex-col items-center justify-center gap-2 p-3 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 rounded-lg transition-all border border-zinc-700/50"
           >
-            <FileText size={16} className="text-purple-400" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Artifact</span>
+            <Brain size={16} className="text-amber-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Challenge</span>
           </button>
         </div>
 
@@ -295,6 +315,48 @@ export function RightSidebar({
             )}
           </div>
         </div>
+
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/40">
+          <div className="border-b border-zinc-800 p-3 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Challenge</span>
+            <span className="text-[10px] text-zinc-500">{challengeSummary}</span>
+          </div>
+          <div className="p-3 space-y-3">
+            {!challengeResult && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-xs text-zinc-500">
+                Run Challenge to generate a structured critique for this block.
+              </div>
+            )}
+
+            {challengeResult && (
+              <>
+                <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2.5 text-[11px] text-zinc-400">
+                  {challengeAnsweredCount} answered or resolved, {challengeOpenCount} still open.
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={onOpenChallengeModal}
+                    className="flex-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-2 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/20"
+                  >
+                    Open Challenge
+                  </button>
+                  <button
+                    onClick={onClearChallenge}
+                    className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-2 text-[11px] text-red-300 hover:bg-red-500/20"
+                  >
+                    <span className="inline-flex items-center gap-1"><Trash2 size={12} /> Clear</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {challengeError && (
+              <div className="rounded-lg border border-red-400/30 bg-red-400/10 p-2.5 text-xs text-red-200">
+                {challengeError}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="mt-auto p-4 border-t border-zinc-800">
@@ -306,7 +368,7 @@ export function RightSidebar({
               <strong>Suggest</strong> helps overcome writer&apos;s block.
             </li>
             <li>
-              <strong>Artifact</strong> creates a shareable summary.
+              <strong>Challenge</strong> pressure-tests assumptions and missing decisions.
             </li>
           </ul>
         </div>

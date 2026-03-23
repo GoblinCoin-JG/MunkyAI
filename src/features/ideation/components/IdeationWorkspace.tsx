@@ -10,10 +10,12 @@ import { DeleteQuestionBoardConfirmModal } from './modals/DeleteQuestionBoardCon
 import { ExpandBoardModal } from './modals/ExpandBoardModal';
 import { NewProjectModal } from './modals/NewProjectModal';
 import { QuestionBoardModal } from './modals/QuestionBoardModal';
+import { ChallengeModal } from './modals/ChallengeModal';
 
 export function IdeationWorkspace() {
   const [isExpandBoardOpen, setIsExpandBoardOpen] = useState(false);
   const [isQuestionBoardOpen, setIsQuestionBoardOpen] = useState(false);
+  const [isChallengeOpen, setIsChallengeOpen] = useState(false);
   const [showDeleteQuestionBoardConfirm, setShowDeleteQuestionBoardConfirm] = useState(false);
 
   const {
@@ -38,8 +40,10 @@ export function IdeationWorkspace() {
     clarifyBoardError,
     clarifyBoardUnansweredIds,
     clarifyBoardCompletion,
-    artifactDraft,
-    setArtifactDraft,
+    challengeResult,
+    challengeError,
+    challengeOpenCount,
+    challengeAnsweredCount,
     expandedNodes,
     deleteConfirmationId,
     setDeleteConfirmationId,
@@ -81,7 +85,10 @@ export function IdeationWorkspace() {
     submitQuestionBoard,
     clearQuestionBoard,
     addSuggestedBlock,
-    exportArtifact,
+    setChallengeItemResponse,
+    setChallengeItemStatus,
+    clearChallenge,
+    applyChallengeResponsesToBlock,
   } = useIdeationWorkspace();
 
   return (
@@ -197,11 +204,8 @@ export function IdeationWorkspace() {
 
       <CenterPanel
         selectedBlock={selectedBlock}
-        artifactDraft={artifactDraft}
         onUpdateBlock={updateBlock}
         onRequestDelete={setDeleteConfirmationId}
-        onExportArtifact={exportArtifact}
-        onCloseArtifact={() => setArtifactDraft(null)}
       />
 
       <div
@@ -224,11 +228,18 @@ export function IdeationWorkspace() {
         clarifyBoardError={clarifyBoardError}
         clarifyBoardUnansweredIds={clarifyBoardUnansweredIds}
         clarifyBoardCompletion={clarifyBoardCompletion}
+        challengeResult={challengeResult}
+        challengeError={challengeError}
+        challengeOpenCount={challengeOpenCount}
+        challengeAnsweredCount={challengeAnsweredCount}
         onSetAiOutput={setAiOutput}
         onAiAction={(action) => {
           void handleAiAction(action).then(() => {
             if (action === 'expand' && selectedId) {
               setIsExpandBoardOpen(true);
+            }
+            if (action === 'challenge' && selectedId) {
+              setIsChallengeOpen(true);
             }
           });
         }}
@@ -239,8 +250,24 @@ export function IdeationWorkspace() {
         }}
         onOpenQuestionBoard={() => setIsQuestionBoardOpen(true)}
         onRequestDeleteQuestionBoard={() => setShowDeleteQuestionBoardConfirm(true)}
+        onOpenChallengeModal={() => setIsChallengeOpen(true)}
+        onClearChallenge={clearChallenge}
         onAddSuggestedBlock={addSuggestedBlock}
       />
+
+      <AnimatePresence>
+        <ChallengeModal
+          isOpen={isChallengeOpen}
+          blockTitle={selectedBlock?.title || 'Selected Block'}
+          isAiLoading={isAiLoading}
+          challengeResult={challengeResult}
+          challengeError={challengeError}
+          onClose={() => setIsChallengeOpen(false)}
+          onSetChallengeItemResponse={setChallengeItemResponse}
+          onSetChallengeItemStatus={setChallengeItemStatus}
+          onApplyResponsesToBlock={applyChallengeResponsesToBlock}
+        />
+      </AnimatePresence>
     </div>
   );
 }
