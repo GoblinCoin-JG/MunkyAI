@@ -1,6 +1,6 @@
 import { CheckCircle2, Circle, Wand2, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ClarifyBoard, ClarifyQuestionCard } from '../../types';
 
 interface QuestionBoardModalProps {
@@ -151,6 +151,12 @@ export function QuestionBoardModal({
   onSubmitQuestionBoard,
 }: QuestionBoardModalProps) {
   const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (isOpen && !clarifyBoard && !isSubmittingClarifyBoard) {
+      onClose();
+    }
+  }, [isOpen, clarifyBoard, isSubmittingClarifyBoard, onClose]);
 
   const hasBoardForSelection = Boolean(
     clarifyBoard && selectedId && clarifyBoard.blockId === selectedId,

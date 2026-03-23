@@ -467,6 +467,7 @@ export function useIdeationWorkspace() {
         content: synthesis.content,
       });
       setClarifyBoardError(null);
+      setClarifyBoard(null);
     } catch (error) {
       console.error(error);
       setClarifyBoardError('Failed to submit board and update the selected block.');
