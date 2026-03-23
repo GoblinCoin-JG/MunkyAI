@@ -1,13 +1,19 @@
 import { AnimatePresence } from 'motion/react';
+import { useState } from 'react';
 import { useIdeationWorkspace } from '../hooks/useIdeationWorkspace';
 import { CenterPanel } from './CenterPanel';
 import { LeftSidebar } from './LeftSidebar';
 import { RightSidebar } from './RightSidebar';
 import { DeleteBlockConfirmModal } from './modals/DeleteBlockConfirmModal';
 import { DeleteProjectConfirmModal } from './modals/DeleteProjectConfirmModal';
+import { DeleteQuestionBoardConfirmModal } from './modals/DeleteQuestionBoardConfirmModal';
 import { NewProjectModal } from './modals/NewProjectModal';
+import { QuestionBoardModal } from './modals/QuestionBoardModal';
 
 export function IdeationWorkspace() {
+  const [isQuestionBoardOpen, setIsQuestionBoardOpen] = useState(false);
+  const [showDeleteQuestionBoardConfirm, setShowDeleteQuestionBoardConfirm] = useState(false);
+
   const {
     projects,
     activeProjectId,
@@ -60,6 +66,7 @@ export function IdeationWorkspace() {
     addCustomQuestionCard,
     addAiQuestionCard,
     submitQuestionBoard,
+    clearQuestionBoard,
     addSuggestedBlock,
     exportArtifact,
   } = useIdeationWorkspace();
@@ -121,6 +128,40 @@ export function IdeationWorkspace() {
         />
       </AnimatePresence>
 
+      <AnimatePresence>
+        <QuestionBoardModal
+          isOpen={isQuestionBoardOpen}
+          selectedId={selectedId}
+          isAiLoading={isAiLoading}
+          isSubmittingClarifyBoard={isSubmittingClarifyBoard}
+          clarifyBoard={clarifyBoard}
+          clarifyBoardError={clarifyBoardError}
+          clarifyBoardUnansweredIds={clarifyBoardUnansweredIds}
+          clarifyBoardCompletion={clarifyBoardCompletion}
+          onClose={() => setIsQuestionBoardOpen(false)}
+          onSetQuestionCardAnswer={setQuestionCardAnswer}
+          onSetQuestionCardNote={setQuestionCardNote}
+          onAddQuestionOption={addQuestionOption}
+          onDeleteQuestionCard={deleteQuestionCard}
+          onAddCustomQuestionCard={addCustomQuestionCard}
+          onAddAiQuestionCard={addAiQuestionCard}
+          onSubmitQuestionBoard={submitQuestionBoard}
+        />
+      </AnimatePresence>
+
+      <AnimatePresence>
+        <DeleteQuestionBoardConfirmModal
+          isOpen={showDeleteQuestionBoardConfirm}
+          blockTitle={selectedBlock?.title || 'Selected Block'}
+          onCancel={() => setShowDeleteQuestionBoardConfirm(false)}
+          onConfirm={() => {
+            clearQuestionBoard();
+            setIsQuestionBoardOpen(false);
+            setShowDeleteQuestionBoardConfirm(false);
+          }}
+        />
+      </AnimatePresence>
+
       <CenterPanel
         selectedBlock={selectedBlock}
         artifactDraft={artifactDraft}
@@ -148,13 +189,8 @@ export function IdeationWorkspace() {
         onSetAiOutput={setAiOutput}
         onAiAction={handleAiAction}
         onApplyExpansion={applyAiExpansion}
-        onSetQuestionCardAnswer={setQuestionCardAnswer}
-        onSetQuestionCardNote={setQuestionCardNote}
-        onAddQuestionOption={addQuestionOption}
-        onDeleteQuestionCard={deleteQuestionCard}
-        onAddCustomQuestionCard={addCustomQuestionCard}
-        onAddAiQuestionCard={addAiQuestionCard}
-        onSubmitQuestionBoard={submitQuestionBoard}
+        onOpenQuestionBoard={() => setIsQuestionBoardOpen(true)}
+        onRequestDeleteQuestionBoard={() => setShowDeleteQuestionBoardConfirm(true)}
         onAddSuggestedBlock={addSuggestedBlock}
       />
     </div>

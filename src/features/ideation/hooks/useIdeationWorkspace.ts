@@ -475,6 +475,11 @@ export function useIdeationWorkspace() {
     }
   };
 
+  const clearQuestionBoard = () => {
+    setClarifyBoard(null);
+    setClarifyBoardError(null);
+  };
+
   const applyAiExpansion = () => {
     if (aiOutput?.type === 'expand' && selectedId) {
       updateBlock(selectedId, {
@@ -568,6 +573,7 @@ export function useIdeationWorkspace() {
     addCustomQuestionCard,
     addAiQuestionCard,
     submitQuestionBoard,
+    clearQuestionBoard,
     addSuggestedBlock,
     exportArtifact,
   };
