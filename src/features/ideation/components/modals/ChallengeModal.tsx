@@ -6,12 +6,13 @@ interface ChallengeModalProps {
   isOpen: boolean;
   blockTitle: string;
   isAiLoading: boolean;
+  isSubmittingChallenge: boolean;
   challengeResult: ChallengeResult | null;
   challengeError: string | null;
   onClose: () => void;
   onSetChallengeItemResponse: (itemId: string, userResponse: string) => void;
   onSetChallengeItemStatus: (itemId: string, status: ChallengeItem['status']) => void;
-  onApplyResponsesToBlock: () => void;
+  onApplyResponsesToBlock: () => Promise<void>;
 }
 
 function ChallengeItemCard({
@@ -85,6 +86,7 @@ export function ChallengeModal({
   isOpen,
   blockTitle,
   isAiLoading,
+  isSubmittingChallenge,
   challengeResult,
   challengeError,
   onClose,
@@ -95,6 +97,8 @@ export function ChallengeModal({
   if (!isOpen) {
     return null;
   }
+
+  const hasAnsweredResponses = Boolean(challengeResult?.items.some((item) => item.userResponse.trim().length > 0));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -127,6 +131,12 @@ export function ChallengeModal({
             </div>
           )}
 
+          {isSubmittingChallenge && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+              Applying challenge responses to the artifact...
+            </div>
+          )}
+
           {!isAiLoading && !challengeError && (!challengeResult || challengeResult.items.length === 0) && (
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-xs text-zinc-500">
               No challenge items available yet. Generate Challenge from the AI panel.
@@ -145,7 +155,7 @@ export function ChallengeModal({
         </div>
 
         <div className="border-t border-zinc-800 p-4 flex items-center justify-between gap-2 bg-zinc-950/50">
-          <p className="text-xs text-zinc-500">Apply responses appends a concise Challenge Responses section to this block.</p>
+          <p className="text-xs text-zinc-500">Apply responses merges the resolved challenge insights back into this block&apos;s structured artifact.</p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
@@ -154,11 +164,13 @@ export function ChallengeModal({
               Close
             </button>
             <button
-              onClick={onApplyResponsesToBlock}
-              disabled={!challengeResult || challengeResult.items.length === 0}
+              onClick={() => {
+                void onApplyResponsesToBlock();
+              }}
+              disabled={!challengeResult || challengeResult.items.length === 0 || !hasAnsweredResponses || isSubmittingChallenge}
               className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
             >
-              Apply Responses to Block
+              {isSubmittingChallenge ? 'Applying...' : 'Apply Responses to Block'}
             </button>
           </div>
         </div>

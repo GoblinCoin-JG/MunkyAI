@@ -6,19 +6,28 @@ export interface Project {
   createdAt: number;
 }
 
+export type ArtifactBody = {
+  summary: string;
+  keyPoints: string[];
+  openQuestions: string[];
+  nextMoves: string[];
+};
+
+export type ArtifactBodyPatch = Partial<ArtifactBody>;
+
 export interface ThinkingBlock {
   id: string;
   projectId: string;
   parentId: string | null;
   title: string;
-  artifactBody: string;
+  artifactBody: ArtifactBody;
   tags: string[];
   maturityState: MaturityState;
 }
 
 export interface Suggestion {
   title: string;
-  description: string;
+  artifactBody: ArtifactBody;
 }
 
 export interface ExpandAspectDraft {
@@ -41,7 +50,7 @@ export interface ExpandBoard {
 
 export interface ScaffoldingBlock {
   title: string;
-  artifactBody: string;
+  artifactBody: ArtifactBody;
   tags: string[];
 }
 

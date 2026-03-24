@@ -1,4 +1,18 @@
-import { MaturityState, Project, ThinkingBlock } from './types';
+import { ArtifactBody, MaturityState, Project, ThinkingBlock } from './types';
+
+function createSeedArtifactBody(
+  summary: string,
+  keyPoints: string[] = [],
+  openQuestions: string[] = [],
+  nextMoves: string[] = [],
+): ArtifactBody {
+  return {
+    summary,
+    keyPoints,
+    openQuestions,
+    nextMoves,
+  };
+}
 
 export const STORAGE_KEYS = {
   projects: 'idea-ide-projects',
@@ -27,8 +41,12 @@ export const INITIAL_BLOCKS: ThinkingBlock[] = [
     projectId: INITIAL_PROJECT_ID,
     parentId: null,
     title: 'My Idea',
-    artifactBody:
-      'A revolutionary new way to explore ideas.\n\nThis project aims to bridge the gap between raw thought and structured output.',
+    artifactBody: createSeedArtifactBody(
+      'A revolutionary new way to explore ideas.',
+      ['Bridge the gap between raw thought and structured output.'],
+      ['Which user workflow should the first version optimize for?'],
+      ['Define the first end-to-end ideation journey.'],
+    ),
     tags: ['vision', 'startup'],
     maturityState: 'Exploratory',
   },
@@ -37,7 +55,12 @@ export const INITIAL_BLOCKS: ThinkingBlock[] = [
     projectId: INITIAL_PROJECT_ID,
     parentId: '1',
     title: 'Core Concept',
-    artifactBody: 'The fundamental mechanism of the app.\n\nThinking blocks that can be nested and expanded by AI.',
+    artifactBody: createSeedArtifactBody(
+      'The fundamental mechanism of the app.',
+      ['Thinking blocks can be nested and expanded by AI.'],
+      ['How much structure should be enforced at block creation time?'],
+      ['Prototype block-level AI edit flows.'],
+    ),
     tags: ['product', 'core'],
     maturityState: 'Developing',
   },
@@ -46,7 +69,12 @@ export const INITIAL_BLOCKS: ThinkingBlock[] = [
     projectId: INITIAL_PROJECT_ID,
     parentId: '1',
     title: 'Audience',
-    artifactBody: 'Who is this for?\n\nWriters, researchers, and creative thinkers who need structure.',
+    artifactBody: createSeedArtifactBody(
+      'This concept targets people who need structure while developing ideas.',
+      ['Likely users include writers, researchers, and creative thinkers.'],
+      ['Which audience segment feels the pain most intensely?'],
+      ['Interview a few target users about their current process.'],
+    ),
     tags: ['market'],
     maturityState: 'Exploratory',
   },
@@ -55,7 +83,12 @@ export const INITIAL_BLOCKS: ThinkingBlock[] = [
     projectId: INITIAL_PROJECT_ID,
     parentId: '1',
     title: 'Main Workflow',
-    artifactBody: 'How the user interacts with the system.\n\nCreate block -> Expand with AI -> Refine.',
+    artifactBody: createSeedArtifactBody(
+      'The core workflow should turn rough ideas into clearer, actionable thinking artifacts.',
+      ['Create block -> Expand with AI -> Refine.'],
+      ['Where should manual editing sit relative to AI actions?'],
+      ['Storyboard the ideal user loop from blank state to refined artifact.'],
+    ),
     tags: ['ux'],
     maturityState: 'Exploratory',
   },
@@ -64,7 +97,12 @@ export const INITIAL_BLOCKS: ThinkingBlock[] = [
     projectId: INITIAL_PROJECT_ID,
     parentId: '1',
     title: 'Risks',
-    artifactBody: 'Potential pitfalls.\n\nAI hallucinations, over-reliance on automation, data privacy.',
+    artifactBody: createSeedArtifactBody(
+      'Several risks could weaken trust in the system if left unaddressed.',
+      ['AI hallucinations could distort the artifact.','Over-reliance on automation could reduce user ownership.','Data privacy needs explicit handling.'],
+      ['Which risks should be addressed in the first release versus later?'],
+      ['Define guardrails for AI output review and data handling.'],
+    ),
     tags: ['strategy'],
     maturityState: 'Exploratory',
   },

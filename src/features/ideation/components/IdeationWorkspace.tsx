@@ -30,6 +30,7 @@ export function IdeationWorkspace() {
     isAiLoading,
     isSubmittingExpandBoard,
     isSubmittingClarifyBoard,
+    isSubmittingChallenge,
     aiOutput,
     setAiOutput,
     expandBoard,
@@ -260,6 +261,7 @@ export function IdeationWorkspace() {
           isOpen={isChallengeOpen}
           blockTitle={selectedBlock?.title || 'Selected Block'}
           isAiLoading={isAiLoading}
+          isSubmittingChallenge={isSubmittingChallenge}
           challengeResult={challengeResult}
           challengeError={challengeError}
           onClose={() => setIsChallengeOpen(false)}

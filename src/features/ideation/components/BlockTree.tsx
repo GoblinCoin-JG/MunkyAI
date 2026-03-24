@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, FileText, Plus, Trash2 } from 'lucide-react';
 import { ThinkingBlock } from '../types';
+import { artifactBodyToPreviewText } from '../utils/artifactBody.ts';
 
 interface BlockTreeProps {
   filteredBlocks: ThinkingBlock[];
@@ -34,6 +35,7 @@ export function BlockTree({
           const hasChildren = projectBlocks.some((candidate) => candidate.parentId === block.id);
           const isExpanded = expandedNodes.has(block.id);
           const isSelected = selectedId === block.id;
+          const previewText = artifactBodyToPreviewText(block.artifactBody);
 
           return (
             <div key={block.id} className="flex flex-col">
@@ -58,8 +60,8 @@ export function BlockTree({
                 <FileText size={14} className="mr-2 opacity-60" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate">{block.title}</p>
-                  {block.artifactBody && (
-                    <p className="text-[11px] text-zinc-500 truncate">{block.artifactBody.replace(/\n+/g, ' ')}</p>
+                  {previewText && (
+                    <p className="text-[11px] text-zinc-500 truncate">{previewText}</p>
                   )}
                 </div>
                 <button

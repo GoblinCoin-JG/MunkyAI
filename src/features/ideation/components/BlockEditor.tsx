@@ -1,8 +1,8 @@
 import { FileText, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import { MATURITY_COLORS } from '../constants';
-import { MaturityState, ThinkingBlock } from '../types';
+import { ArtifactBody, MaturityState, ThinkingBlock } from '../types';
+import { artifactBodyHasContent } from '../utils/artifactBody.ts';
 
 interface BlockEditorProps {
   selectedBlock: ThinkingBlock;
@@ -10,8 +10,51 @@ interface BlockEditorProps {
   onRequestDelete: (id: string) => void;
 }
 
+function parseListInput(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function ArtifactListSection({
+  title,
+  items,
+  placeholder,
+}: {
+  title: string;
+  items: string[];
+  placeholder: string;
+}) {
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-950/30 p-4 space-y-3">
+      <div>
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">{title}</h3>
+      </div>
+      {items.length > 0 ? (
+        <ul className="space-y-2 text-sm text-zinc-200 list-disc pl-4">
+          {items.map((item) => (
+            <li key={`${title}-${item}`}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-zinc-500">{placeholder}</p>
+      )}
+    </section>
+  );
+}
+
 export function BlockEditor({ selectedBlock, onUpdateBlock, onRequestDelete }: BlockEditorProps) {
   const [contentMode, setContentMode] = useState<'view' | 'edit'>('view');
+
+  const updateArtifactBody = (patch: Partial<ArtifactBody>) => {
+    onUpdateBlock(selectedBlock.id, {
+      artifactBody: {
+        ...selectedBlock.artifactBody,
+        ...patch,
+      },
+    });
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -91,7 +134,7 @@ export function BlockEditor({ selectedBlock, onUpdateBlock, onRequestDelete }: B
 
           <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
             <div className="border-b border-zinc-800 p-3 flex items-center justify-between gap-2">
-              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Artifact Body</label>
+              <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Artifact</label>
               <div className="inline-flex rounded-lg border border-zinc-700 bg-zinc-900/70 p-1">
                 <button
                   onClick={() => setContentMode('view')}
@@ -109,20 +152,85 @@ export function BlockEditor({ selectedBlock, onUpdateBlock, onRequestDelete }: B
             </div>
 
             {contentMode === 'edit' ? (
-              <div className="p-4">
-                <textarea
-                  value={selectedBlock.artifactBody}
-                  onChange={(event) => onUpdateBlock(selectedBlock.id, { artifactBody: event.target.value })}
-                  placeholder="Write the main artifact content for this block..."
-                  className="w-full bg-zinc-950/60 border border-zinc-800 rounded-lg p-4 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none min-h-[340px] resize-y"
-                />
+              <div className="p-4 space-y-4">
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
+                  <label className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">Summary</label>
+                  <textarea
+                    value={selectedBlock.artifactBody.summary}
+                    onChange={(event) => updateArtifactBody({ summary: event.target.value })}
+                    placeholder="Capture what this block currently means in 1-3 concise sentences."
+                    className="w-full min-h-28 bg-zinc-950/60 border border-zinc-800 rounded-lg p-4 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none resize-y"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
+                    <label className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">Key Points</label>
+                    <p className="text-[11px] text-zinc-500">One item per line.</p>
+                    <textarea
+                      value={selectedBlock.artifactBody.keyPoints.join('\n')}
+                      onChange={(event) => updateArtifactBody({ keyPoints: parseListInput(event.target.value) })}
+                      placeholder="Important facts, constraints, and decisions."
+                      className="w-full min-h-52 bg-zinc-950/60 border border-zinc-800 rounded-lg p-4 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none resize-y"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
+                    <label className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">Open Questions</label>
+                    <p className="text-[11px] text-zinc-500">One unresolved question per line.</p>
+                    <textarea
+                      value={selectedBlock.artifactBody.openQuestions.join('\n')}
+                      onChange={(event) => updateArtifactBody({ openQuestions: parseListInput(event.target.value) })}
+                      placeholder="Unknowns, assumptions to test, or decisions still pending."
+                      className="w-full min-h-52 bg-zinc-950/60 border border-zinc-800 rounded-lg p-4 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none resize-y"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4 space-y-2">
+                    <label className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">Next Moves</label>
+                    <p className="text-[11px] text-zinc-500">One action per line.</p>
+                    <textarea
+                      value={selectedBlock.artifactBody.nextMoves.join('\n')}
+                      onChange={(event) => updateArtifactBody({ nextMoves: parseListInput(event.target.value) })}
+                      placeholder="Concrete follow-up steps for this block."
+                      className="w-full min-h-52 bg-zinc-950/60 border border-zinc-800 rounded-lg p-4 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none resize-y"
+                    />
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="p-6 prose prose-invert prose-sm max-w-none min-h-[340px]">
-                {selectedBlock.artifactBody.trim() ? (
-                  <ReactMarkdown>{selectedBlock.artifactBody}</ReactMarkdown>
+              <div className="p-6 min-h-[340px]">
+                {artifactBodyHasContent(selectedBlock.artifactBody) ? (
+                  <div className="space-y-4">
+                    <section className="rounded-xl border border-zinc-800 bg-zinc-950/30 p-5 space-y-3">
+                      <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400">Summary</h3>
+                      {selectedBlock.artifactBody.summary ? (
+                        <p className="text-sm leading-7 text-zinc-200 whitespace-pre-wrap">{selectedBlock.artifactBody.summary}</p>
+                      ) : (
+                        <p className="text-sm text-zinc-500">No summary captured yet.</p>
+                      )}
+                    </section>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                      <ArtifactListSection
+                        title="Key Points"
+                        items={selectedBlock.artifactBody.keyPoints}
+                        placeholder="No key points captured yet."
+                      />
+                      <ArtifactListSection
+                        title="Open Questions"
+                        items={selectedBlock.artifactBody.openQuestions}
+                        placeholder="No open questions captured yet."
+                      />
+                      <ArtifactListSection
+                        title="Next Moves"
+                        items={selectedBlock.artifactBody.nextMoves}
+                        placeholder="No next moves captured yet."
+                      />
+                    </div>
+                  </div>
                 ) : (
-                  <p className="text-zinc-500">No artifact body yet. Switch to Edit mode to write this block.</p>
+                  <p className="text-zinc-500">No artifact content yet. Switch to Edit mode to shape this block into a working artifact.</p>
                 )}
               </div>
             )}

@@ -19,6 +19,7 @@ import {
   ThinkingBlock,
 } from '../types';
 import { collectDescendantIds } from '../utils/blockTree';
+import { artifactBodyToLegacyText, createEmptyArtifactBody, mergeArtifactBody, normalizeArtifactBody } from '../utils/artifactBody.ts';
 import { createId } from '../../../utils/createId';
 import { useResizablePanels } from './useResizablePanels';
 
@@ -93,24 +94,6 @@ function isChallengeAnswered(item: ChallengeItem): boolean {
   return item.userResponse.trim().length > 0;
 }
 
-function appendChallengeResponses(artifactBody: string, items: ChallengeItem[]): string {
-  const answered = items.filter((item) => isChallengeAnswered(item));
-  if (answered.length === 0) {
-    return artifactBody;
-  }
-
-  const responseSection = answered
-    .map((item) => `### ${item.keyPoint}\n- Challenge: ${item.challengePrompt}\n- Response: ${item.userResponse.trim()}`)
-    .join('\n\n');
-
-  const normalizedBody = artifactBody.trim();
-  if (!normalizedBody) {
-    return `## Challenge Responses\n\n${responseSection}`;
-  }
-
-  return `${normalizedBody}\n\n## Challenge Responses\n\n${responseSection}`;
-}
-
 export function useIdeationWorkspace() {
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.projects);
@@ -132,6 +115,7 @@ export function useIdeationWorkspace() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isSubmittingExpandBoard, setIsSubmittingExpandBoard] = useState(false);
   const [isSubmittingClarifyBoard, setIsSubmittingClarifyBoard] = useState(false);
+  const [isSubmittingChallenge, setIsSubmittingChallenge] = useState(false);
   const [aiOutput, setAiOutput] = useState<AiOutput | null>(null);
   const [expandBoard, setExpandBoard] = useState<ExpandBoard | null>(null);
   const [expandBoardError, setExpandBoardError] = useState<string | null>(null);
@@ -232,7 +216,7 @@ export function useIdeationWorkspace() {
 
     return projectBlocks.filter((block) => {
       const inTitle = block.title.toLowerCase().includes(normalizedQuery);
-      const inBody = block.artifactBody.toLowerCase().includes(normalizedQuery);
+      const inBody = artifactBodyToLegacyText(block.artifactBody).toLowerCase().includes(normalizedQuery);
       const inTags = block.tags.some((tag) => tag.toLowerCase().includes(normalizedQuery));
       return inTitle || inBody || inTags;
     });
@@ -261,7 +245,7 @@ export function useIdeationWorkspace() {
         projectId: newProjectId,
         parentId: null,
         title: scaffold.projectName,
-        artifactBody: newProjectIdea.trim(),
+        artifactBody: normalizeArtifactBody(newProjectIdea.trim()),
         tags: ['root'],
         maturityState: 'Exploratory',
       };
@@ -271,7 +255,7 @@ export function useIdeationWorkspace() {
         projectId: newProjectId,
         parentId: rootBlockId,
         title: block.title,
-        artifactBody: block.artifactBody,
+        artifactBody: normalizeArtifactBody(block.artifactBody),
         tags: block.tags,
         maturityState: 'Exploratory',
       }));
@@ -297,7 +281,7 @@ export function useIdeationWorkspace() {
       projectId: activeProjectId,
       parentId,
       title: 'New Block',
-      artifactBody: '',
+      artifactBody: createEmptyArtifactBody(),
       tags: [],
       maturityState: 'Exploratory',
     };
@@ -311,7 +295,21 @@ export function useIdeationWorkspace() {
   };
 
   const updateBlock = (id: string, updates: Partial<ThinkingBlock>) => {
-    setBlocks((prev) => prev.map((block) => (block.id === id ? { ...block, ...updates } : block)));
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== id) {
+          return block;
+        }
+
+        const hasArtifactUpdate = Object.prototype.hasOwnProperty.call(updates, 'artifactBody');
+
+        return {
+          ...block,
+          ...updates,
+          artifactBody: hasArtifactUpdate ? normalizeArtifactBody(updates.artifactBody) : block.artifactBody,
+        };
+      }),
+    );
   };
 
   const deleteBlock = (id: string) => {
@@ -539,7 +537,7 @@ export function useIdeationWorkspace() {
     try {
       const synthesis = await ideationAiService.synthesizeExpandBoard(selectedBlock, payload);
       updateBlock(selectedId, {
-        artifactBody: synthesis.artifactBody,
+        artifactBody: mergeArtifactBody(selectedBlock.artifactBody, synthesis),
       });
       setExpandBoardError(null);
       setExpandBoard(null);
@@ -712,7 +710,7 @@ export function useIdeationWorkspace() {
     try {
       const synthesis = await ideationAiService.synthesizeClarifyAnswers(selectedBlock, payload);
       updateBlock(selectedId, {
-        artifactBody: synthesis.artifactBody,
+        artifactBody: mergeArtifactBody(selectedBlock.artifactBody, synthesis),
       });
       setClarifyBoardError(null);
       setClarifyBoard(null);
@@ -739,7 +737,7 @@ export function useIdeationWorkspace() {
       projectId: activeProjectId,
       parentId: selectedId,
       title: suggestion.title,
-      artifactBody: suggestion.description,
+      artifactBody: normalizeArtifactBody(suggestion.artifactBody),
       tags: [],
       maturityState: 'Exploratory',
     };
@@ -777,22 +775,48 @@ export function useIdeationWorkspace() {
     setChallengeError(null);
   };
 
-  const applyChallengeResponsesToBlock = () => {
+  const applyChallengeResponsesToBlock = async () => {
     if (!selectedBlock || !challengeResult) {
       return;
     }
 
-    const nextBody = appendChallengeResponses(selectedBlock.artifactBody, challengeResult.items);
-    updateBlock(selectedBlock.id, { artifactBody: nextBody });
+    const answeredItems = challengeResult.items.filter((item) => isChallengeAnswered(item));
+    if (answeredItems.length === 0) {
+      return;
+    }
 
-    setChallengeResult({
-      items: challengeResult.items.map((item) => {
-        if (item.userResponse.trim().length > 0) {
-          return { ...item, status: 'resolved' };
-        }
-        return item;
-      }),
-    });
+    setIsSubmittingChallenge(true);
+
+    try {
+      const synthesis = await ideationAiService.synthesizeChallengeResponses(
+        selectedBlock,
+        answeredItems.map((item) => ({
+          keyPoint: item.keyPoint,
+          challengePrompt: item.challengePrompt,
+          whyItMatters: item.whyItMatters,
+          userResponse: item.userResponse.trim(),
+        })),
+      );
+
+      updateBlock(selectedBlock.id, {
+        artifactBody: mergeArtifactBody(selectedBlock.artifactBody, synthesis),
+      });
+
+      setChallengeResult({
+        items: challengeResult.items.map((item) => {
+          if (item.userResponse.trim().length > 0) {
+            return { ...item, status: 'resolved' };
+          }
+          return item;
+        }),
+      });
+      setChallengeError(null);
+    } catch (error) {
+      console.error(error);
+      setChallengeError('Failed to apply challenge responses to the selected block.');
+    } finally {
+      setIsSubmittingChallenge(false);
+    }
   };
 
   return {
@@ -807,6 +831,7 @@ export function useIdeationWorkspace() {
     isAiLoading,
     isSubmittingExpandBoard,
     isSubmittingClarifyBoard,
+    isSubmittingChallenge,
     aiOutput,
     setAiOutput,
     expandBoard,

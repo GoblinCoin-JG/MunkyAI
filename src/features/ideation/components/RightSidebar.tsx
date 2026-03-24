@@ -2,6 +2,7 @@ import { Brain, MessageSquare, Plus, Sparkles, Trash2, X, Zap } from 'lucide-rea
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo } from 'react';
 import { AiOutput, ChallengeResult, ClarifyBoard, ExpandBoard, Suggestion } from '../types';
+import { artifactBodyToPreviewText } from '../utils/artifactBody.ts';
 
 interface RightSidebarProps {
   rightWidth: number;
@@ -170,7 +171,16 @@ export function RightSidebar({
                   {aiOutput.content.map((suggestion, index) => (
                     <div key={index} className="bg-zinc-800/50 border border-zinc-800 p-3 rounded-lg space-y-2">
                       <h4 className="text-xs font-bold text-green-400">{suggestion.title}</h4>
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">{suggestion.description}</p>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        {suggestion.artifactBody.summary || artifactBodyToPreviewText(suggestion.artifactBody) || 'No summary generated.'}
+                      </p>
+                      {suggestion.artifactBody.keyPoints.length > 0 && (
+                        <ul className="list-disc pl-4 text-[11px] text-zinc-500 space-y-1">
+                          {suggestion.artifactBody.keyPoints.slice(0, 2).map((item) => (
+                            <li key={`${suggestion.title}-${item}`}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
                       <button
                         onClick={() => onAddSuggestedBlock(suggestion)}
                         className="text-[10px] font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1"

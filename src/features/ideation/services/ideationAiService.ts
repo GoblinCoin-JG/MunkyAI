@@ -1,5 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import {
+  ArtifactBody,
+  ArtifactBodyPatch,
   ChallengeItemDraft,
   ClarifyQuestionDraft,
   ExpandAspectDraft,
@@ -7,9 +9,97 @@ import {
   Suggestion,
   ThinkingBlock,
 } from '../types';
+import { normalizeArtifactBody, normalizeArtifactBodyPatch } from '../utils/artifactBody.ts';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
+
+function buildArtifactBodySchema(required = true) {
+  return {
+    type: Type.OBJECT,
+    properties: {
+      summary: { type: Type.STRING },
+      keyPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+      openQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+      nextMoves: { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+    ...(required ? { required: ['summary', 'keyPoints', 'openQuestions', 'nextMoves'] } : {}),
+  };
+}
+
+function formatArtifactBodyForPrompt(artifactBody: ArtifactBody): string {
+  return [
+    `Summary:\n${artifactBody.summary || 'None yet.'}`,
+    `Key Points:\n${artifactBody.keyPoints.length ? artifactBody.keyPoints.map((item) => `- ${item}`).join('\n') : '- None yet.'}`,
+    `Open Questions:\n${artifactBody.openQuestions.length ? artifactBody.openQuestions.map((item) => `- ${item}`).join('\n') : '- None yet.'}`,
+    `Next Moves:\n${artifactBody.nextMoves.length ? artifactBody.nextMoves.map((item) => `- ${item}`).join('\n') : '- None yet.'}`,
+  ].join('\n\n');
+}
+
+function parseScaffoldingBlocks(value: unknown): ScaffoldingBlock[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const title = typeof record.title === 'string' ? record.title.trim() : '';
+      if (!title) {
+        return null;
+      }
+
+      return {
+        title,
+        artifactBody: normalizeArtifactBody(record.artifactBody),
+        tags: Array.isArray(record.tags)
+          ? record.tags
+              .filter((tag): tag is string => typeof tag === 'string')
+              .map((tag) => tag.trim())
+              .filter(Boolean)
+          : [],
+      };
+    })
+    .filter((block): block is ScaffoldingBlock => block !== null);
+}
+
+function parseSuggestionList(value: unknown): Suggestion[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const title = typeof record.title === 'string' ? record.title.trim() : '';
+      if (!title) {
+        return null;
+      }
+
+      return {
+        title,
+        artifactBody: normalizeArtifactBody(record.artifactBody),
+      };
+    })
+    .filter((suggestion): suggestion is Suggestion => suggestion !== null);
+}
+
+function parseArtifactPatchEnvelope(value: unknown): ArtifactBodyPatch {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  return normalizeArtifactBodyPatch(record.artifactBody ?? value);
+}
 
 export const ideationAiService = {
   async generateProjectStructure(
@@ -24,7 +114,18 @@ export const ideationAiService = {
       contents: `Analyze this idea and generate a structured project name and a set of 4-6 initial thinking blocks to explore it.
       Idea: ${idea}
 
-      Each block should have a title, a markdown-friendly artifact body (2-5 short paragraphs or bullet points), and 2-3 relevant tags.
+      Each block must include:
+      - a concise title
+      - artifactBody with summary, keyPoints, openQuestions, nextMoves
+      - 2-3 relevant tags
+
+      Artifact writing rules:
+      - Keep summary concise and specific to the idea.
+      - Make keyPoints concrete and distinct.
+      - Use openQuestions only for meaningful unresolved issues.
+      - Make nextMoves actionable.
+      - Avoid generic filler and repeated ideas across sections.
+
       Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
@@ -38,7 +139,7 @@ export const ideationAiService = {
                 type: Type.OBJECT,
                 properties: {
                   title: { type: Type.STRING },
-                  artifactBody: { type: Type.STRING },
+                  artifactBody: buildArtifactBodySchema(),
                   tags: { type: Type.ARRAY, items: { type: Type.STRING } },
                 },
                 required: ['title', 'artifactBody', 'tags'],
@@ -50,7 +151,12 @@ export const ideationAiService = {
       },
     });
 
-    return JSON.parse(response.text);
+    const parsed = JSON.parse(response.text) as { projectName?: string; blocks?: unknown };
+
+    return {
+      projectName: typeof parsed.projectName === 'string' ? parsed.projectName.trim() : 'New Project',
+      blocks: parseScaffoldingBlocks(parsed.blocks),
+    };
   },
 
   async expandBlock(block: ThinkingBlock): Promise<ExpandAspectDraft[]> {
@@ -62,7 +168,8 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Generate 4-6 expansion aspect cards for this idea block.
       Title: ${block.title}
-      Artifact body: ${block.artifactBody}
+      Artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
       Maturity: ${block.maturityState}
       Tags: ${block.tags.join(', ') || 'none'}
 
@@ -118,7 +225,8 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Create one additional expansion aspect card for this idea.
       Title: ${block.title}
-      Artifact body: ${block.artifactBody}
+      Artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
       Maturity: ${block.maturityState}
       Tags: ${block.tags.join(', ') || 'none'}
 
@@ -150,7 +258,7 @@ export const ideationAiService = {
   async synthesizeExpandBoard(
     block: ThinkingBlock,
     cards: Array<{ title: string; detail: string; context: string }>,
-  ): Promise<{ artifactBody: string }> {
+  ): Promise<ArtifactBodyPatch> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
@@ -166,28 +274,30 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Update this idea block artifact using the expansion board cards.
       Current block title: ${block.title}
-      Current artifact body:
-      ${block.artifactBody}
+      Current artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
 
       Expansion cards:
       ${cardsText}
 
-      Return one improved artifactBody that integrates the expansion details.
-      Keep it concrete, preserve the original intent, and avoid fluff.
+      Return artifactBody as a structured JSON object containing only the sections that should change.
+      Preserve existing sections by omitting them if they do not need changes.
+      Keep summary concise, keyPoints concrete, openQuestions unresolved, and nextMoves actionable.
+      Avoid fluff and do not flatten everything into one paragraph.
       Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            artifactBody: { type: Type.STRING },
+            artifactBody: buildArtifactBodySchema(false),
           },
           required: ['artifactBody'],
         },
       },
     });
 
-    return JSON.parse(response.text);
+    return parseArtifactPatchEnvelope(JSON.parse(response.text));
   },
 
   async clarifyBlock(block: ThinkingBlock): Promise<ClarifyQuestionDraft[]> {
@@ -199,7 +309,8 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Generate 4-6 structured clarification question cards for this idea:
       Title: ${block.title}
-      Artifact body: ${block.artifactBody}
+      Artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
       Maturity: ${block.maturityState}
       Tags: ${block.tags.join(', ') || 'none'}
 
@@ -259,7 +370,8 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Create one additional clarification question card for this idea.
       Title: ${block.title}
-      Artifact body: ${block.artifactBody}
+      Artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
       Maturity: ${block.maturityState}
       Tags: ${block.tags.join(', ') || 'none'}
 
@@ -298,7 +410,7 @@ export const ideationAiService = {
   async synthesizeClarifyAnswers(
     block: ThinkingBlock,
     answers: Array<{ title: string; prompt: string; answer: string; note: string }>,
-  ): Promise<{ artifactBody: string }> {
+  ): Promise<ArtifactBodyPatch> {
     if (!genAI) {
       throw new Error('AI not configured');
     }
@@ -314,13 +426,15 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Update this idea block artifact using answered clarification cards.
       Current block title: ${block.title}
-      Current artifact body:
-      ${block.artifactBody}
+      Current artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
 
       Clarification answers:
       ${answerText}
 
-      Return one improved artifactBody that integrates the new details.
+      Return artifactBody as a structured JSON object containing only the sections that should change.
+      Preserve existing sections by omitting them if they do not need changes.
+      Clarifications should improve the right section, including resolving or replacing openQuestions when justified.
       Keep it concrete and preserve the original intent.
       Return as JSON.`,
       config: {
@@ -328,14 +442,14 @@ export const ideationAiService = {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            artifactBody: { type: Type.STRING },
+            artifactBody: buildArtifactBodySchema(false),
           },
           required: ['artifactBody'],
         },
       },
     });
 
-    return JSON.parse(response.text);
+    return parseArtifactPatchEnvelope(JSON.parse(response.text));
   },
 
   async suggestChildren(block: ThinkingBlock): Promise<Suggestion[]> {
@@ -347,10 +461,21 @@ export const ideationAiService = {
       model: 'gemini-3-flash-preview',
       contents: `Suggest 3 related child idea blocks for:
       Title: ${block.title}
-      Artifact body: ${block.artifactBody}
+      Artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
       Tags: ${block.tags.join(', ') || 'none'}
 
-      Return as a JSON array of objects with 'title' and 'description'.`,
+      For each suggestion, return:
+      - title
+      - artifactBody with summary, keyPoints, openQuestions, nextMoves
+
+      Writing rules:
+      - Make the summary concise and specific.
+      - Keep keyPoints concrete and distinct.
+      - Use openQuestions only for meaningful unknowns.
+      - Make nextMoves actionable.
+
+      Return as JSON.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
@@ -359,15 +484,15 @@ export const ideationAiService = {
             type: Type.OBJECT,
             properties: {
               title: { type: Type.STRING },
-              description: { type: Type.STRING },
+              artifactBody: buildArtifactBodySchema(),
             },
-            required: ['title', 'description'],
+            required: ['title', 'artifactBody'],
           },
         },
       },
     });
 
-    return JSON.parse(response.text);
+    return parseSuggestionList(JSON.parse(response.text));
   },
 
   async challengeBlock(block: ThinkingBlock): Promise<ChallengeItemDraft[]> {
@@ -382,8 +507,12 @@ export const ideationAiService = {
       Block title: ${block.title}
       Maturity: ${block.maturityState}
       Tags: ${block.tags.join(', ') || 'none'}
-      Artifact body:
-      ${block.artifactBody}
+      Artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
+
+      Use keyPoints as the primary source for challenge items.
+      Use openQuestions when they expose unresolved decisions or assumptions.
+      If keyPoints are sparse, fall back to the summary.
 
       Requirements:
       - Generate around 3-7 items based on content depth.
@@ -418,5 +547,51 @@ export const ideationAiService = {
 
     const parsed = JSON.parse(response.text) as { items?: ChallengeItemDraft[] };
     return Array.isArray(parsed.items) ? parsed.items : [];
+  },
+
+  async synthesizeChallengeResponses(
+    block: ThinkingBlock,
+    items: Array<{ keyPoint: string; challengePrompt: string; whyItMatters: string; userResponse: string }>,
+  ): Promise<ArtifactBodyPatch> {
+    if (!genAI) {
+      throw new Error('AI not configured');
+    }
+
+    const responseText = items
+      .map(
+        (item, index) =>
+          `${index + 1}. Key point: ${item.keyPoint}\nChallenge: ${item.challengePrompt}\nWhy it matters: ${item.whyItMatters}\nResponse: ${item.userResponse}`,
+      )
+      .join('\n\n');
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Update this idea block artifact using answered challenge items.
+      Current block title: ${block.title}
+      Current artifact:
+      ${formatArtifactBodyForPrompt(block.artifactBody)}
+
+      Answered challenge items:
+      ${responseText}
+
+      Return artifactBody as a structured JSON object containing only the sections that should change.
+      Work primarily in keyPoints, openQuestions, and nextMoves.
+      Resolve or replace openQuestions when the responses justify it.
+      Preserve untouched sections by omitting them.
+      Do not append an unstructured challenge section.
+      Return as JSON.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            artifactBody: buildArtifactBodySchema(false),
+          },
+          required: ['artifactBody'],
+        },
+      },
+    });
+
+    return parseArtifactPatchEnvelope(JSON.parse(response.text));
   },
 };

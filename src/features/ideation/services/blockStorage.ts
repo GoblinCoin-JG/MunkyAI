@@ -1,4 +1,5 @@
 import { ThinkingBlock } from '../types';
+import { normalizeArtifactBody, normalizeThinkingBlock } from '../utils/artifactBody.ts';
 
 interface LegacyBlockRecord {
   id?: unknown;
@@ -34,7 +35,7 @@ function normalizeTags(tags: unknown): string[] {
     .filter((tag, index, source) => source.findIndex((candidate) => candidate.toLowerCase() === tag.toLowerCase()) === index);
 }
 
-function buildArtifactBodyFromLegacy(record: LegacyBlockRecord): string {
+function buildLegacyArtifactText(record: LegacyBlockRecord): string {
   const artifactBody = sanitizeText(asString(record.artifactBody));
   if (artifactBody) {
     return artifactBody;
@@ -65,13 +66,13 @@ function isLegacyBlockRecord(value: unknown): value is LegacyBlockRecord {
 
 export function migrateStoredBlocks(savedBlocks: string | null, fallbackBlocks: ThinkingBlock[]): ThinkingBlock[] {
   if (!savedBlocks) {
-    return fallbackBlocks;
+    return fallbackBlocks.map(normalizeThinkingBlock);
   }
 
   try {
     const parsed = JSON.parse(savedBlocks) as unknown;
     if (!Array.isArray(parsed)) {
-      return fallbackBlocks;
+      return fallbackBlocks.map(normalizeThinkingBlock);
     }
 
     return parsed
@@ -93,18 +94,18 @@ export function migrateStoredBlocks(savedBlocks: string | null, fallbackBlocks: 
         const parentIdRaw = record.parentId;
         const parentId = typeof parentIdRaw === 'string' && parentIdRaw.trim().length > 0 ? parentIdRaw : null;
 
-        return {
+        return normalizeThinkingBlock({
           id,
           projectId,
           parentId,
           title,
-          artifactBody: buildArtifactBodyFromLegacy(record),
+          artifactBody: normalizeArtifactBody(record.artifactBody, buildLegacyArtifactText(record)),
           tags: normalizeTags(record.tags),
           maturityState: normalizedMaturityState,
-        };
+        });
       })
       .filter((block): block is ThinkingBlock => block !== null);
   } catch {
-    return fallbackBlocks;
+    return fallbackBlocks.map(normalizeThinkingBlock);
   }
 }
