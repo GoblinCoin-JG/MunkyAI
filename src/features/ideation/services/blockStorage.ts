@@ -1,5 +1,5 @@
 import { ThinkingBlock } from '../types';
-import { normalizeArtifactBody, normalizeThinkingBlock } from '../utils/artifactBody.ts';
+import { normalizeArtifactBodyToMarkdown, normalizeThinkingBlock } from '../utils/artifactBody.ts';
 
 interface LegacyBlockRecord {
   id?: unknown;
@@ -36,11 +36,6 @@ function normalizeTags(tags: unknown): string[] {
 }
 
 function buildLegacyArtifactText(record: LegacyBlockRecord): string {
-  const artifactBody = sanitizeText(asString(record.artifactBody));
-  if (artifactBody) {
-    return artifactBody;
-  }
-
   const notesContent = sanitizeText(asString(record.notesContent));
   const content = sanitizeText(asString(record.content));
   const summary = sanitizeText(asString(record.summary));
@@ -99,7 +94,7 @@ export function migrateStoredBlocks(savedBlocks: string | null, fallbackBlocks: 
           projectId,
           parentId,
           title,
-          artifactBody: normalizeArtifactBody(record.artifactBody, buildLegacyArtifactText(record)),
+          artifactBody: normalizeArtifactBodyToMarkdown(record.artifactBody, buildLegacyArtifactText(record)),
           tags: normalizeTags(record.tags),
           maturityState: normalizedMaturityState,
         });

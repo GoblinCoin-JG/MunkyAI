@@ -19,7 +19,12 @@ import {
   ThinkingBlock,
 } from '../types';
 import { collectDescendantIds } from '../utils/blockTree';
-import { artifactBodyToLegacyText, createEmptyArtifactBody, mergeArtifactBody, normalizeArtifactBody } from '../utils/artifactBody.ts';
+import {
+  artifactBodyToLegacyText,
+  createEmptyArtifactBody,
+  mergeArtifactMarkdown,
+  normalizeArtifactBodyToMarkdown,
+} from '../utils/artifactBody.ts';
 import { createId } from '../../../utils/createId';
 import { useResizablePanels } from './useResizablePanels';
 
@@ -62,7 +67,7 @@ function buildExpandCard(draft: ExpandAspectDraft, source: 'ai' | 'custom'): Exp
 function buildChallengeItem(draft: ChallengeItemDraft): ChallengeItem {
   return {
     id: createId(),
-    keyPoint: draft.keyPoint?.trim() || 'Untitled key point',
+    focusText: draft.focusText?.trim() || 'Untitled artifact focus area',
     challengePrompt: draft.challengePrompt?.trim() || 'Clarify this part of the artifact.',
     whyItMatters: draft.whyItMatters?.trim() || 'This impacts clarity and execution quality.',
     userResponse: '',
@@ -245,7 +250,7 @@ export function useIdeationWorkspace() {
         projectId: newProjectId,
         parentId: null,
         title: scaffold.projectName,
-        artifactBody: normalizeArtifactBody(newProjectIdea.trim()),
+        artifactBody: normalizeArtifactBodyToMarkdown(newProjectIdea.trim()),
         tags: ['root'],
         maturityState: 'Exploratory',
       };
@@ -255,7 +260,7 @@ export function useIdeationWorkspace() {
         projectId: newProjectId,
         parentId: rootBlockId,
         title: block.title,
-        artifactBody: normalizeArtifactBody(block.artifactBody),
+        artifactBody: normalizeArtifactBodyToMarkdown(block.artifactBody),
         tags: block.tags,
         maturityState: 'Exploratory',
       }));
@@ -306,7 +311,7 @@ export function useIdeationWorkspace() {
         return {
           ...block,
           ...updates,
-          artifactBody: hasArtifactUpdate ? normalizeArtifactBody(updates.artifactBody) : block.artifactBody,
+          artifactBody: hasArtifactUpdate ? normalizeArtifactBodyToMarkdown(updates.artifactBody) : block.artifactBody,
         };
       }),
     );
@@ -537,7 +542,7 @@ export function useIdeationWorkspace() {
     try {
       const synthesis = await ideationAiService.synthesizeExpandBoard(selectedBlock, payload);
       updateBlock(selectedId, {
-        artifactBody: mergeArtifactBody(selectedBlock.artifactBody, synthesis),
+        artifactBody: mergeArtifactMarkdown(selectedBlock.artifactBody, synthesis),
       });
       setExpandBoardError(null);
       setExpandBoard(null);
@@ -710,7 +715,7 @@ export function useIdeationWorkspace() {
     try {
       const synthesis = await ideationAiService.synthesizeClarifyAnswers(selectedBlock, payload);
       updateBlock(selectedId, {
-        artifactBody: mergeArtifactBody(selectedBlock.artifactBody, synthesis),
+        artifactBody: mergeArtifactMarkdown(selectedBlock.artifactBody, synthesis),
       });
       setClarifyBoardError(null);
       setClarifyBoard(null);
@@ -737,7 +742,7 @@ export function useIdeationWorkspace() {
       projectId: activeProjectId,
       parentId: selectedId,
       title: suggestion.title,
-      artifactBody: normalizeArtifactBody(suggestion.artifactBody),
+      artifactBody: normalizeArtifactBodyToMarkdown(suggestion.artifactBody),
       tags: [],
       maturityState: 'Exploratory',
     };
@@ -791,7 +796,7 @@ export function useIdeationWorkspace() {
       const synthesis = await ideationAiService.synthesizeChallengeResponses(
         selectedBlock,
         answeredItems.map((item) => ({
-          keyPoint: item.keyPoint,
+          focusText: item.focusText,
           challengePrompt: item.challengePrompt,
           whyItMatters: item.whyItMatters,
           userResponse: item.userResponse.trim(),
@@ -799,7 +804,7 @@ export function useIdeationWorkspace() {
       );
 
       updateBlock(selectedBlock.id, {
-        artifactBody: mergeArtifactBody(selectedBlock.artifactBody, synthesis),
+        artifactBody: mergeArtifactMarkdown(selectedBlock.artifactBody, synthesis),
       });
 
       setChallengeResult({

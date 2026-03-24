@@ -6,14 +6,7 @@ export interface Project {
   createdAt: number;
 }
 
-export type ArtifactBody = {
-  summary: string;
-  keyPoints: string[];
-  openQuestions: string[];
-  nextMoves: string[];
-};
-
-export type ArtifactBodyPatch = Partial<ArtifactBody>;
+export type ArtifactBody = string;
 
 export interface ThinkingBlock {
   id: string;
@@ -58,7 +51,7 @@ export type ChallengeStatus = 'open' | 'answered' | 'skipped' | 'resolved';
 
 export interface ChallengeItem {
   id: string;
-  keyPoint: string;
+  focusText: string;
   challengePrompt: string;
   whyItMatters: string;
   userResponse: string;
@@ -66,7 +59,7 @@ export interface ChallengeItem {
 }
 
 export interface ChallengeItemDraft {
-  keyPoint: string;
+  focusText: string;
   challengePrompt: string;
   whyItMatters: string;
 }

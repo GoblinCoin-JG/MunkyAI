@@ -28,7 +28,7 @@ function ChallengeItemCard({
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 space-y-3">
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h4 className="text-sm font-semibold tracking-tight text-zinc-100">{item.keyPoint}</h4>
+          <h4 className="text-sm font-semibold tracking-tight text-zinc-100">{item.focusText}</h4>
           <span className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wider text-zinc-400">
             {item.status}
           </span>
@@ -155,7 +155,7 @@ export function ChallengeModal({
         </div>
 
         <div className="border-t border-zinc-800 p-4 flex items-center justify-between gap-2 bg-zinc-950/50">
-          <p className="text-xs text-zinc-500">Apply responses merges the resolved challenge insights back into this block&apos;s structured artifact.</p>
+          <p className="text-xs text-zinc-500">Apply responses merges resolved challenge insights back into this block&apos;s markdown artifact.</p>
           <div className="flex gap-2">
             <button
               onClick={onClose}

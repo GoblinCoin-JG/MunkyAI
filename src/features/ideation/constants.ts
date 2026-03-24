@@ -1,17 +1,30 @@
 import { ArtifactBody, MaturityState, Project, ThinkingBlock } from './types';
 
 function createSeedArtifactBody(
-  summary: string,
-  keyPoints: string[] = [],
+  overview: string,
+  keyIdeas: string[] = [],
   openQuestions: string[] = [],
-  nextMoves: string[] = [],
+  nextSteps: string[] = [],
 ): ArtifactBody {
-  return {
-    summary,
-    keyPoints,
-    openQuestions,
-    nextMoves,
-  };
+  const sections: string[] = [];
+
+  if (overview.trim()) {
+    sections.push(`## Overview\n${overview.trim()}`);
+  }
+
+  if (keyIdeas.length > 0) {
+    sections.push(`## Key Ideas\n${keyIdeas.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  if (openQuestions.length > 0) {
+    sections.push(`## Open Questions\n${openQuestions.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  if (nextSteps.length > 0) {
+    sections.push(`## Next Steps\n${nextSteps.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  return sections.join('\n\n');
 }
 
 export const STORAGE_KEYS = {
@@ -99,7 +112,11 @@ export const INITIAL_BLOCKS: ThinkingBlock[] = [
     title: 'Risks',
     artifactBody: createSeedArtifactBody(
       'Several risks could weaken trust in the system if left unaddressed.',
-      ['AI hallucinations could distort the artifact.','Over-reliance on automation could reduce user ownership.','Data privacy needs explicit handling.'],
+      [
+        'AI hallucinations could distort the artifact.',
+        'Over-reliance on automation could reduce user ownership.',
+        'Data privacy needs explicit handling.',
+      ],
       ['Which risks should be addressed in the first release versus later?'],
       ['Define guardrails for AI output review and data handling.'],
     ),

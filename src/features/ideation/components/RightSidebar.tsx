@@ -172,15 +172,8 @@ export function RightSidebar({
                     <div key={index} className="bg-zinc-800/50 border border-zinc-800 p-3 rounded-lg space-y-2">
                       <h4 className="text-xs font-bold text-green-400">{suggestion.title}</h4>
                       <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        {suggestion.artifactBody.summary || artifactBodyToPreviewText(suggestion.artifactBody) || 'No summary generated.'}
+                        {artifactBodyToPreviewText(suggestion.artifactBody) || 'No artifact preview generated.'}
                       </p>
-                      {suggestion.artifactBody.keyPoints.length > 0 && (
-                        <ul className="list-disc pl-4 text-[11px] text-zinc-500 space-y-1">
-                          {suggestion.artifactBody.keyPoints.slice(0, 2).map((item) => (
-                            <li key={`${suggestion.title}-${item}`}>{item}</li>
-                          ))}
-                        </ul>
-                      )}
                       <button
                         onClick={() => onAddSuggestedBlock(suggestion)}
                         className="text-[10px] font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1"
@@ -334,7 +327,7 @@ export function RightSidebar({
           <div className="p-3 space-y-3">
             {!challengeResult && (
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-xs text-zinc-500">
-                Run Challenge to generate a structured critique for this block.
+                Run Challenge to generate markdown-derived critique prompts for this block.
               </div>
             )}
 
