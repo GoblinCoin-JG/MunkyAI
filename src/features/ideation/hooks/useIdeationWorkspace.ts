@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { INITIAL_BLOCKS, INITIAL_PROJECT_ID, INITIAL_PROJECTS, STORAGE_KEYS } from '../constants';
+import { buildIdeationContext, IdeationRecentInput } from '../services/ai/buildIdeationContext';
 import { ideationAiService } from '../services/ideationAiService';
 import { migrateStoredBlocks } from '../services/blockStorage';
 import {
@@ -99,6 +100,26 @@ function isChallengeAnswered(item: ChallengeItem): boolean {
   return item.userResponse.trim().length > 0;
 }
 
+function buildPathFromRoot(blocks: ThinkingBlock[], block: ThinkingBlock): ThinkingBlock[] {
+  const byId = new Map(blocks.map((candidate) => [candidate.id, candidate]));
+  const path: ThinkingBlock[] = [];
+  const visited = new Set<string>();
+
+  let cursor: ThinkingBlock | undefined = block;
+  while (cursor && !visited.has(cursor.id)) {
+    path.push(cursor);
+    visited.add(cursor.id);
+
+    if (!cursor.parentId) {
+      break;
+    }
+
+    cursor = byId.get(cursor.parentId);
+  }
+
+  return path.reverse();
+}
+
 export function useIdeationWorkspace() {
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.projects);
@@ -156,6 +177,11 @@ export function useIdeationWorkspace() {
   const projectBlocks = useMemo(
     () => blocks.filter((block) => block.projectId === activeProjectId),
     [blocks, activeProjectId],
+  );
+
+  const activeProjectName = useMemo(
+    () => projects.find((project) => project.id === activeProjectId)?.name ?? 'Untitled Project',
+    [projects, activeProjectId],
   );
 
   const selectedBlock = useMemo(
@@ -367,9 +393,22 @@ export function useIdeationWorkspace() {
     setAiOutput(null);
 
     try {
+      const parentBlock = selectedBlock.parentId
+        ? projectBlocks.find((candidate) => candidate.id === selectedBlock.parentId) ?? null
+        : null;
+      const childBlocks = projectBlocks.filter((candidate) => candidate.parentId === selectedBlock.id);
+      const pathFromRoot = buildPathFromRoot(projectBlocks, selectedBlock);
+      const contextPacket = buildIdeationContext({
+        projectName: activeProjectName,
+        selectedBlock,
+        parentBlock,
+        childBlocks,
+        pathFromRoot,
+      });
+
       switch (action) {
         case 'expand': {
-          const aspects = await ideationAiService.expandBlock(selectedBlock);
+          const aspects = await ideationAiService.expandBlock(selectedBlock, contextPacket);
           const cards = aspects.map((aspect) => buildExpandCard(aspect, 'ai'));
           setExpandBoard({
             blockId: selectedBlock.id,
@@ -379,7 +418,7 @@ export function useIdeationWorkspace() {
           break;
         }
         case 'clarify': {
-          const questions = await ideationAiService.clarifyBlock(selectedBlock);
+          const questions = await ideationAiService.clarifyBlock(selectedBlock, contextPacket);
           const cards = questions.map((question) => buildQuestionCard(question, 'ai'));
           setClarifyBoard({
             blockId: selectedBlock.id,
@@ -389,12 +428,12 @@ export function useIdeationWorkspace() {
           break;
         }
         case 'suggest': {
-          const suggestions = await ideationAiService.suggestChildren(selectedBlock);
+          const suggestions = await ideationAiService.suggestChildren(selectedBlock, contextPacket);
           setAiOutput({ type: 'suggest', content: suggestions });
           break;
         }
         case 'challenge': {
-          const challengeDrafts = await ideationAiService.challengeBlock(selectedBlock);
+          const challengeDrafts = await ideationAiService.challengeBlock(selectedBlock, contextPacket);
           setChallengeResult({
             items: challengeDrafts.map(buildChallengeItem),
           });
@@ -491,7 +530,24 @@ export function useIdeationWorkspace() {
     setIsAiLoading(true);
 
     try {
-      const aspect = await ideationAiService.generateExpandAspect(selectedBlock, existingAspects);
+      const parentBlock = selectedBlock.parentId
+        ? projectBlocks.find((candidate) => candidate.id === selectedBlock.parentId) ?? null
+        : null;
+      const childBlocks = projectBlocks.filter((candidate) => candidate.parentId === selectedBlock.id);
+      const pathFromRoot = buildPathFromRoot(projectBlocks, selectedBlock);
+      const contextPacket = buildIdeationContext({
+        projectName: activeProjectName,
+        selectedBlock,
+        parentBlock,
+        childBlocks,
+        pathFromRoot,
+        recentInputs: existingAspects.map((aspect) => ({
+          title: aspect.title,
+          content: `${aspect.detail}${aspect.context ? ` Context: ${aspect.context}` : ''}`,
+        })),
+      });
+
+      const aspect = await ideationAiService.generateExpandAspect(selectedBlock, existingAspects, contextPacket);
       setExpandBoard((prev) => {
         if (!prev || prev.blockId !== selectedBlock.id) {
           return {
@@ -540,7 +596,26 @@ export function useIdeationWorkspace() {
     setIsSubmittingExpandBoard(true);
 
     try {
-      const synthesis = await ideationAiService.synthesizeExpandBoard(selectedBlock, payload);
+      const parentBlock = selectedBlock.parentId
+        ? projectBlocks.find((candidate) => candidate.id === selectedBlock.parentId) ?? null
+        : null;
+      const childBlocks = projectBlocks.filter((candidate) => candidate.parentId === selectedBlock.id);
+      const pathFromRoot = buildPathFromRoot(projectBlocks, selectedBlock);
+      const recentInputs: IdeationRecentInput[] = payload.map((item) => ({
+        title: item.title,
+        content: `${item.detail}${item.context ? ` Context: ${item.context}` : ''}`,
+      }));
+
+      const contextPacket = buildIdeationContext({
+        projectName: activeProjectName,
+        selectedBlock,
+        parentBlock,
+        childBlocks,
+        pathFromRoot,
+        recentInputs,
+      });
+
+      const synthesis = await ideationAiService.synthesizeExpandBoard(selectedBlock, payload, contextPacket);
       updateBlock(selectedId, {
         artifactBody: mergeArtifactMarkdown(selectedBlock.artifactBody, synthesis),
       });
@@ -663,7 +738,28 @@ export function useIdeationWorkspace() {
     setIsAiLoading(true);
 
     try {
-      const question = await ideationAiService.generateClarifyQuestion(selectedBlock, existingQuestions);
+      const parentBlock = selectedBlock.parentId
+        ? projectBlocks.find((candidate) => candidate.id === selectedBlock.parentId) ?? null
+        : null;
+      const childBlocks = projectBlocks.filter((candidate) => candidate.parentId === selectedBlock.id);
+      const pathFromRoot = buildPathFromRoot(projectBlocks, selectedBlock);
+      const contextPacket = buildIdeationContext({
+        projectName: activeProjectName,
+        selectedBlock,
+        parentBlock,
+        childBlocks,
+        pathFromRoot,
+        recentInputs: existingQuestions.map((question) => ({
+          title: question.title,
+          content: question.prompt,
+        })),
+      });
+
+      const question = await ideationAiService.generateClarifyQuestion(
+        selectedBlock,
+        existingQuestions,
+        contextPacket,
+      );
       setClarifyBoard((prev) => {
         if (!prev || prev.blockId !== selectedBlock.id) {
           return {
@@ -713,7 +809,26 @@ export function useIdeationWorkspace() {
     setIsSubmittingClarifyBoard(true);
 
     try {
-      const synthesis = await ideationAiService.synthesizeClarifyAnswers(selectedBlock, payload);
+      const parentBlock = selectedBlock.parentId
+        ? projectBlocks.find((candidate) => candidate.id === selectedBlock.parentId) ?? null
+        : null;
+      const childBlocks = projectBlocks.filter((candidate) => candidate.parentId === selectedBlock.id);
+      const pathFromRoot = buildPathFromRoot(projectBlocks, selectedBlock);
+      const recentInputs: IdeationRecentInput[] = payload.map((item) => ({
+        title: item.title,
+        content: `${item.prompt} Answer: ${item.answer}${item.note ? ` Note: ${item.note}` : ''}`,
+      }));
+
+      const contextPacket = buildIdeationContext({
+        projectName: activeProjectName,
+        selectedBlock,
+        parentBlock,
+        childBlocks,
+        pathFromRoot,
+        recentInputs,
+      });
+
+      const synthesis = await ideationAiService.synthesizeClarifyAnswers(selectedBlock, payload, contextPacket);
       updateBlock(selectedId, {
         artifactBody: mergeArtifactMarkdown(selectedBlock.artifactBody, synthesis),
       });
@@ -793,14 +908,34 @@ export function useIdeationWorkspace() {
     setIsSubmittingChallenge(true);
 
     try {
+      const parentBlock = selectedBlock.parentId
+        ? projectBlocks.find((candidate) => candidate.id === selectedBlock.parentId) ?? null
+        : null;
+      const childBlocks = projectBlocks.filter((candidate) => candidate.parentId === selectedBlock.id);
+      const pathFromRoot = buildPathFromRoot(projectBlocks, selectedBlock);
+      const answeredPayload = answeredItems.map((item) => ({
+        focusText: item.focusText,
+        challengePrompt: item.challengePrompt,
+        whyItMatters: item.whyItMatters,
+        userResponse: item.userResponse.trim(),
+      }));
+
+      const contextPacket = buildIdeationContext({
+        projectName: activeProjectName,
+        selectedBlock,
+        parentBlock,
+        childBlocks,
+        pathFromRoot,
+        recentInputs: answeredPayload.map((item) => ({
+          title: item.focusText,
+          content: `${item.challengePrompt} Response: ${item.userResponse}`,
+        })),
+      });
+
       const synthesis = await ideationAiService.synthesizeChallengeResponses(
         selectedBlock,
-        answeredItems.map((item) => ({
-          focusText: item.focusText,
-          challengePrompt: item.challengePrompt,
-          whyItMatters: item.whyItMatters,
-          userResponse: item.userResponse.trim(),
-        })),
+        answeredPayload,
+        contextPacket,
       );
 
       updateBlock(selectedBlock.id, {

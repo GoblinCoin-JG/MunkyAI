@@ -4,32 +4,129 @@ import {
   ChallengeItemDraft,
   ClarifyQuestionDraft,
   ExpandAspectDraft,
+  QuestionCardType,
   ScaffoldingBlock,
   Suggestion,
   ThinkingBlock,
 } from '../types';
 import {
   extractChallengeUnitsFromMarkdown,
-  normalizeArtifactBodyToMarkdown,
   summarizeMarkdownSections,
 } from '../utils/artifactBody.ts';
+import {
+  buildIdeationContext,
+  IdeationContextPacket,
+  IdeationContextPacketInput,
+} from './ai/buildIdeationContext';
+import {
+  buildChallengeBlockPrompt,
+  buildClarifyBlockPrompt,
+  buildGenerateClarifyQuestionPrompt,
+  buildGenerateExpandAspectPrompt,
+  buildGenerateProjectStructurePrompt,
+  buildRefinementPrompt,
+  buildSuggestChildrenPrompt,
+  buildSynthesizeChallengeResponsesPrompt,
+  buildSynthesizeClarifyAnswersPrompt,
+  buildSynthesizeExpandBoardPrompt,
+  buildExpandBlockPrompt,
+} from './ai/operationPrompts';
+import {
+  refineArtifactMarkdown,
+  refineChallengeItems,
+  refineClarifyQuestions,
+  refineExpandAspects,
+  refineScaffoldingBlocks,
+  refineSuggestions,
+} from './ai/refineIdeationOutputs';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const ENABLE_PROMPT_REFINEMENT = String(process.env.VITE_IDEATION_AI_REFINE ?? 'false') === 'true';
 
-const ARTIFACT_MARKDOWN_RULES = [
-  'Output markdown only inside artifactBody.',
-  'Write a clear, scan-friendly working artifact for the block.',
-  'Use headings only when they improve clarity.',
-  'Use bullet lists for grouped ideas and short paragraphs for narrative.',
-  'Avoid empty sections and generic filler headings.',
-  'Be specific to the block context and preserve uncertainty honestly.',
-  'When editing, preserve useful existing structure and revise relevant sections instead of rewriting everything.',
-].join('\n- ');
+type JsonSchema = Record<string, unknown>;
 
-function formatArtifactBodyForPrompt(artifactBody: ArtifactBody): string {
-  const normalized = normalizeArtifactBodyToMarkdown(artifactBody);
-  return normalized || 'No artifact yet.';
+function assertGenAi(): GoogleGenAI {
+  if (!genAI) {
+    throw new Error('AI not configured');
+  }
+
+  return genAI;
+}
+
+function toJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return {};
+}
+
+function parseJsonText(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
+async function generateJson(prompt: string, responseSchema: JsonSchema): Promise<unknown> {
+  const ai = assertGenAi();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema,
+    },
+  });
+
+  return parseJsonText(response.text);
+}
+
+async function generateJsonWithOptionalRefinement(
+  operation:
+    | 'project-structure'
+    | 'expand'
+    | 'clarify'
+    | 'suggest-children'
+    | 'challenge'
+    | 'artifact-synthesis',
+  prompt: string,
+  responseSchema: JsonSchema,
+  packet?: IdeationContextPacket,
+): Promise<unknown> {
+  const firstPass = await generateJson(prompt, responseSchema);
+
+  if (!ENABLE_PROMPT_REFINEMENT) {
+    return firstPass;
+  }
+
+  const refinementPrompt = buildRefinementPrompt(operation, JSON.stringify(firstPass), packet);
+  return generateJson(refinementPrompt, responseSchema);
+}
+
+function resolveContextPacket(
+  block: ThinkingBlock,
+  context?: IdeationContextPacket | IdeationContextPacketInput,
+): IdeationContextPacket {
+  if (!context) {
+    return buildIdeationContext({ selectedBlock: block });
+  }
+
+  if ('selectedBlockId' in context) {
+    return context;
+  }
+
+  return buildIdeationContext(context);
+}
+
+function parseQuestionType(value: unknown): QuestionCardType {
+  if (value === 'single' || value === 'multi') {
+    return value;
+  }
+
+  return 'textarea';
 }
 
 function parseScaffoldingBlocks(value: unknown): ScaffoldingBlock[] {
@@ -51,7 +148,7 @@ function parseScaffoldingBlocks(value: unknown): ScaffoldingBlock[] {
 
       return {
         title,
-        artifactBody: normalizeArtifactBodyToMarkdown(record.artifactBody),
+        artifactBody: typeof record.artifactBody === 'string' ? record.artifactBody : '',
         tags: Array.isArray(record.tags)
           ? record.tags
               .filter((tag): tag is string => typeof tag === 'string')
@@ -82,51 +179,34 @@ function parseSuggestionList(value: unknown): Suggestion[] {
 
       return {
         title,
-        artifactBody: normalizeArtifactBodyToMarkdown(record.artifactBody),
+        artifactBody: typeof record.artifactBody === 'string' ? record.artifactBody : '',
       };
     })
     .filter((suggestion): suggestion is Suggestion => suggestion !== null);
 }
 
 function parseArtifactEnvelope(value: unknown): ArtifactBody {
-  if (typeof value === 'string') {
-    return normalizeArtifactBodyToMarkdown(value);
+  if (typeof value === 'string' && value.trim()) {
+    return value;
   }
 
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return '';
   }
 
   const record = value as Record<string, unknown>;
-  return normalizeArtifactBodyToMarkdown(record.artifactBody ?? value);
+  return typeof record.artifactBody === 'string' ? record.artifactBody : '';
 }
 
 export const ideationAiService = {
   async generateProjectStructure(
     idea: string,
   ): Promise<{ projectName: string; blocks: ScaffoldingBlock[] }> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Analyze this idea and generate a project name plus 4-6 initial thinking blocks.
-Idea: ${idea}
-
-Each block must include:
-- title
-- artifactBody (markdown string)
-- 2-3 relevant tags
-
-Artifact rules:
-- ${ARTIFACT_MARKDOWN_RULES}
-- Keep each artifact concise but useful for an initial scaffold.
-
-Return JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'project-structure',
+        buildGenerateProjectStructurePrompt(idea),
+        {
           type: Type.OBJECT,
           properties: {
             projectName: { type: Type.STRING },
@@ -145,41 +225,25 @@ Return JSON.`,
           },
           required: ['projectName', 'blocks'],
         },
-      },
-    });
-
-    const parsed = JSON.parse(response.text) as { projectName?: string; blocks?: unknown };
+      ),
+    );
 
     return {
       projectName: typeof parsed.projectName === 'string' ? parsed.projectName.trim() : 'New Project',
-      blocks: parseScaffoldingBlocks(parsed.blocks),
+      blocks: refineScaffoldingBlocks(parseScaffoldingBlocks(parsed.blocks)),
     };
   },
 
-  async expandBlock(block: ThinkingBlock): Promise<ExpandAspectDraft[]> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Generate 4-6 expansion aspect cards for this idea block.
-Title: ${block.title}
-Artifact:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-Maturity: ${block.maturityState}
-Tags: ${block.tags.join(', ') || 'none'}
-
-Requirements:
-- Each card must include title and detail.
-- title should be concise and specific to one aspect.
-- detail should be concrete and editable by a user.
-- Avoid duplicates and broad generic cards.
-
-Return as JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+  async expandBlock(
+    block: ThinkingBlock,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
+  ): Promise<ExpandAspectDraft[]> {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'expand',
+        buildExpandBlockPrompt(packet),
+        {
           type: Type.OBJECT,
           properties: {
             aspects: {
@@ -196,49 +260,25 @@ Return as JSON.`,
           },
           required: ['aspects'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    const parsed = JSON.parse(response.text) as { aspects?: ExpandAspectDraft[] };
-    return Array.isArray(parsed.aspects) ? parsed.aspects : [];
+    const aspects = Array.isArray(parsed.aspects) ? (parsed.aspects as ExpandAspectDraft[]) : [];
+    return refineExpandAspects(aspects);
   },
 
   async generateExpandAspect(
     block: ThinkingBlock,
     existingAspects: { title: string; detail: string; context: string }[],
+    context?: IdeationContextPacket | IdeationContextPacketInput,
   ): Promise<ExpandAspectDraft> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const existingText = existingAspects
-      .map(
-        (aspect, index) =>
-          `${index + 1}. ${aspect.title}\nDetail: ${aspect.detail}\nContext: ${aspect.context || 'None'}`,
-      )
-      .join('\n\n');
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Create one additional expansion aspect card for this idea.
-Title: ${block.title}
-Artifact:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-Maturity: ${block.maturityState}
-Tags: ${block.tags.join(', ') || 'none'}
-
-Existing expansion cards:
-${existingText || 'None'}
-
-Requirements:
-- Return one non-duplicate card.
-- Include: title, detail.
-- Keep title concise and detail concrete.
-
-Return as JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'expand',
+        buildGenerateExpandAspectPrompt(packet, existingAspects),
+        {
           type: Type.OBJECT,
           properties: {
             title: { type: Type.STRING },
@@ -246,85 +286,59 @@ Return as JSON.`,
           },
           required: ['title', 'detail'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    return JSON.parse(response.text);
+    const refined = refineExpandAspects([
+      {
+        title: typeof parsed.title === 'string' ? parsed.title : '',
+        detail: typeof parsed.detail === 'string' ? parsed.detail : '',
+      },
+    ]);
+
+    return (
+      refined[0] ?? {
+        title: 'New expansion angle',
+        detail: 'Define one concrete dimension where this block needs stronger detail or clearer decisions.',
+      }
+    );
   },
 
   async synthesizeExpandBoard(
     block: ThinkingBlock,
     cards: Array<{ title: string; detail: string; context: string }>,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
   ): Promise<ArtifactBody> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const cardsText = cards
-      .map((item, index) => {
-        const contextLine = item.context ? `\nUser Context: ${item.context}` : '';
-        return `${index + 1}. ${item.title}\nDetail: ${item.detail}${contextLine}`;
-      })
-      .join('\n\n');
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Revise the artifact markdown using the expansion board cards.
-Current block title: ${block.title}
-Current artifact markdown:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-
-Expansion cards:
-${cardsText}
-
-Rules:
-- ${ARTIFACT_MARKDOWN_RULES}
-- Return a full revised artifactBody markdown string, not a patch object.
-- Integrate new information in relevant sections.
-- Avoid duplicating headings or flattening everything into one paragraph.
-
-Return JSON with shape: { "artifactBody": "...markdown..." }`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'artifact-synthesis',
+        buildSynthesizeExpandBoardPrompt(packet, cards),
+        {
           type: Type.OBJECT,
           properties: {
             artifactBody: { type: Type.STRING },
           },
           required: ['artifactBody'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    return parseArtifactEnvelope(JSON.parse(response.text));
+    return refineArtifactMarkdown(parseArtifactEnvelope(parsed));
   },
 
-  async clarifyBlock(block: ThinkingBlock): Promise<ClarifyQuestionDraft[]> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Generate 4-6 structured clarification question cards for this idea:
-Title: ${block.title}
-Artifact:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-Maturity: ${block.maturityState}
-Tags: ${block.tags.join(', ') || 'none'}
-
-Requirements:
-- Each item must include: title, prompt, type, options.
-- type must be one of: textarea, single, multi.
-- Use textarea for open-ended context collection.
-- Use single/multi when concrete options reduce friction.
-- For textarea, options should be an empty array.
-- For single/multi, provide 3-6 concise options.
-
-Return as JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+  async clarifyBlock(
+    block: ThinkingBlock,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
+  ): Promise<ClarifyQuestionDraft[]> {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'clarify',
+        buildClarifyBlockPrompt(packet),
+        {
           type: Type.OBJECT,
           properties: {
             questions: {
@@ -346,48 +360,25 @@ Return as JSON.`,
           },
           required: ['questions'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    const parsed = JSON.parse(response.text) as { questions?: ClarifyQuestionDraft[] };
-    return Array.isArray(parsed.questions) ? parsed.questions : [];
+    const questions = Array.isArray(parsed.questions) ? (parsed.questions as ClarifyQuestionDraft[]) : [];
+    return refineClarifyQuestions(questions);
   },
 
   async generateClarifyQuestion(
     block: ThinkingBlock,
     existingQuestions: { title: string; prompt: string }[],
+    context?: IdeationContextPacket | IdeationContextPacketInput,
   ): Promise<ClarifyQuestionDraft> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const existingText = existingQuestions
-      .map((question, index) => `${index + 1}. ${question.title} - ${question.prompt}`)
-      .join('\n');
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Create one additional clarification question card for this idea.
-Title: ${block.title}
-Artifact:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-Maturity: ${block.maturityState}
-Tags: ${block.tags.join(', ') || 'none'}
-
-Existing question cards:
-${existingText || 'None'}
-
-Requirements:
-- Return one non-duplicate card.
-- Include: title, prompt, type, options.
-- type must be one of: textarea, single, multi.
-- If type is textarea, options must be an empty array.
-- If type is single or multi, provide 3-6 options.
-
-Return as JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'clarify',
+        buildGenerateClarifyQuestionPrompt(packet, existingQuestions),
+        {
           type: Type.OBJECT,
           properties: {
             title: { type: Type.STRING },
@@ -400,137 +391,93 @@ Return as JSON.`,
           },
           required: ['title', 'prompt', 'type', 'options'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    return JSON.parse(response.text);
+    const refined = refineClarifyQuestions([
+      {
+        title: typeof parsed.title === 'string' ? parsed.title : '',
+        prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
+        type: parseQuestionType(parsed.type),
+        options: Array.isArray(parsed.options)
+          ? parsed.options.filter((option): option is string => typeof option === 'string')
+          : [],
+      },
+    ]);
+
+    return (
+      refined[0] ?? {
+        title: 'Resolve a key decision',
+        prompt: 'Which unresolved decision in this block is currently blocking quality or execution most, and what is your proposed answer?',
+        type: 'textarea',
+        options: [],
+      }
+    );
   },
 
   async synthesizeClarifyAnswers(
     block: ThinkingBlock,
     answers: Array<{ title: string; prompt: string; answer: string; note: string }>,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
   ): Promise<ArtifactBody> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const answerText = answers
-      .map((item, index) => {
-        const noteLine = item.note ? `\nNote/Context: ${item.note}` : '';
-        return `${index + 1}. ${item.title}\nPrompt: ${item.prompt}\nAnswer: ${item.answer}${noteLine}`;
-      })
-      .join('\n\n');
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Revise the artifact markdown using answered clarification cards.
-Current block title: ${block.title}
-Current artifact markdown:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-
-Clarification answers:
-${answerText}
-
-Rules:
-- ${ARTIFACT_MARKDOWN_RULES}
-- Return a full revised artifactBody markdown string, not a patch object.
-- Merge clarified details into relevant existing sections when possible.
-- Remove or reduce uncertainty that the answers resolved.
-- Preserve useful organization from the current artifact.
-
-Return JSON with shape: { "artifactBody": "...markdown..." }`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'artifact-synthesis',
+        buildSynthesizeClarifyAnswersPrompt(packet, answers),
+        {
           type: Type.OBJECT,
           properties: {
             artifactBody: { type: Type.STRING },
           },
           required: ['artifactBody'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    return parseArtifactEnvelope(JSON.parse(response.text));
+    return refineArtifactMarkdown(parseArtifactEnvelope(parsed));
   },
 
-  async suggestChildren(block: ThinkingBlock): Promise<Suggestion[]> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Suggest 3 related child idea blocks for:
-Title: ${block.title}
-Artifact:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-Tags: ${block.tags.join(', ') || 'none'}
-
-For each suggestion, return:
-- title
-- artifactBody (markdown string)
-
-Artifact rules:
-- ${ARTIFACT_MARKDOWN_RULES}
-- Keep each suggested artifact concise but useful.
-
-Return as JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              artifactBody: { type: Type.STRING },
-            },
-            required: ['title', 'artifactBody'],
+  async suggestChildren(
+    block: ThinkingBlock,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
+  ): Promise<Suggestion[]> {
+    const packet = resolveContextPacket(block, context);
+    const parsed = await generateJsonWithOptionalRefinement(
+      'suggest-children',
+      buildSuggestChildrenPrompt(packet),
+      {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            artifactBody: { type: Type.STRING },
           },
+          required: ['title', 'artifactBody'],
         },
       },
-    });
+      packet,
+    );
 
-    return parseSuggestionList(JSON.parse(response.text));
+    return refineSuggestions(parseSuggestionList(parsed));
   },
 
-  async challengeBlock(block: ThinkingBlock): Promise<ChallengeItemDraft[]> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
+  async challengeBlock(
+    block: ThinkingBlock,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
+  ): Promise<ChallengeItemDraft[]> {
+    const packet = resolveContextPacket(block, context);
     const challengeUnits = extractChallengeUnitsFromMarkdown(block.artifactBody);
     const sectionSummaries = summarizeMarkdownSections(block.artifactBody);
 
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `You are a thoughtful collaborator. Analyze this artifact and create concise, answerable challenge items.
-
-Block title: ${block.title}
-Maturity: ${block.maturityState}
-Tags: ${block.tags.join(', ') || 'none'}
-Artifact markdown:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-
-Derived challenge units from markdown:
-${challengeUnits.length > 0 ? challengeUnits.map((unit, index) => `${index + 1}. ${unit}`).join('\n') : 'None extracted'}
-
-Section summaries:
-${sectionSummaries.length > 0 ? sectionSummaries.map((line) => `- ${line}`).join('\n') : '- None'}
-
-Requirements:
-- Generate around 3-7 items based on content depth.
-- Focus on assumptions, unclear claims, unresolved trade-offs, and decision gaps.
-- Each item must include focusText, challengePrompt, whyItMatters.
-- focusText should reference a concrete challenge unit from the markdown artifact.
-- challengePrompt must be concrete enough for a single user response.
-- Avoid nitpicking wording.
-
-Return as JSON.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'challenge',
+        buildChallengeBlockPrompt(packet, challengeUnits, sectionSummaries),
+        {
           type: Type.OBJECT,
           properties: {
             items: {
@@ -548,58 +495,35 @@ Return as JSON.`,
           },
           required: ['items'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    const parsed = JSON.parse(response.text) as { items?: ChallengeItemDraft[] };
-    return Array.isArray(parsed.items) ? parsed.items : [];
+    const items = Array.isArray(parsed.items) ? (parsed.items as ChallengeItemDraft[]) : [];
+    return refineChallengeItems(items);
   },
 
   async synthesizeChallengeResponses(
     block: ThinkingBlock,
     items: Array<{ focusText: string; challengePrompt: string; whyItMatters: string; userResponse: string }>,
+    context?: IdeationContextPacket | IdeationContextPacketInput,
   ): Promise<ArtifactBody> {
-    if (!genAI) {
-      throw new Error('AI not configured');
-    }
-
-    const responseText = items
-      .map(
-        (item, index) =>
-          `${index + 1}. Focus: ${item.focusText}\nChallenge: ${item.challengePrompt}\nWhy it matters: ${item.whyItMatters}\nResponse: ${item.userResponse}`,
-      )
-      .join('\n\n');
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Revise the artifact markdown using answered challenge items.
-Current block title: ${block.title}
-Current artifact markdown:
-${formatArtifactBodyForPrompt(block.artifactBody)}
-
-Answered challenge items:
-${responseText}
-
-Rules:
-- ${ARTIFACT_MARKDOWN_RULES}
-- Return a full revised artifactBody markdown string, not a patch object.
-- Apply resolved insights in the relevant sections and avoid unrelated rewrites.
-- Remove stale uncertainty when the user responses resolve it.
-- Do not append a noisy "challenge dump" section.
-
-Return JSON with shape: { "artifactBody": "...markdown..." }`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
+    const packet = resolveContextPacket(block, context);
+    const parsed = toJsonObject(
+      await generateJsonWithOptionalRefinement(
+        'artifact-synthesis',
+        buildSynthesizeChallengeResponsesPrompt(packet, items),
+        {
           type: Type.OBJECT,
           properties: {
             artifactBody: { type: Type.STRING },
           },
           required: ['artifactBody'],
         },
-      },
-    });
+        packet,
+      ),
+    );
 
-    return parseArtifactEnvelope(JSON.parse(response.text));
+    return refineArtifactMarkdown(parseArtifactEnvelope(parsed));
   },
 };
